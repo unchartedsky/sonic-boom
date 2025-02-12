@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: redis
+    ports:
+      - '6379:6379'
+
+  kong:
+    # image: kong:3.9.0-ubuntu
+    build: .
+    environment:
+      - KONG_DATABASE=off
+      - KONG_DECLARATIVE_CONFIG=/kong/config.yml
+      - KONG_PLUGINS=bundled,sonic-boom
+      - KONG_PLUGINSERVER_NAMES=sonic-boom
+      - KONG_PLUGINSERVER_SONIC_BOOM_START_CMD=/kong/go-plugins/sonic-boom
+      - KONG_PLUGINSERVER_SONIC_BOOM_QUERY_CMD=/kong/go-plugins/sonic-boom -dump
+      - KONG_PROXY_LISTEN=0.0.0.0:8000
+      - KONG_LOG_LEVEL=debug
+      - KONG_NGINX_HTTP_GZIP=on
+      - KONG_NGINX_HTTP_GZIP_VARY=on
+#      - KONG_NGINX_HTTP_GZIP_TYPES="application/json application/json; utf-8"
+      - KONG_NGINX_HTTP_GZIP_PROXIED="any"
+    ports:
+      - '8000:8000'
+    restart: on-failure
+    volumes:
+      - ./config_v1.yml:/kong/config.yml
+      - ./bin/linux-amd64:/kong/go-plugins
+
+volumes:
+  shared-volume:

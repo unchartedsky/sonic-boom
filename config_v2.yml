@@ -1,0 +1,31 @@
+_format_version: "2.1"
+_transform: true
+
+services:
+  - name: mock-api
+    host: mock-api.upstream
+    port: 9000
+    path: /
+    protocol: http
+    read_timeout: 120000
+    retries: 1
+    write_timeout: 120000
+    routes:
+      - name: mock-api
+        # methods:
+        # - POST
+        # - GET
+        paths:
+          - /
+        preserve_host: false
+        protocols:
+          - http
+        regex_priority: 0
+        strip_path: true
+        https_redirect_status_code: 426
+
+upstreams:
+  - name: mock-api.upstream
+    targets:
+      - target: https://reqres.in
+        weight: 100
