@@ -48,7 +48,7 @@ jobs:
 
           whoami
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
           persist-credentials: false
