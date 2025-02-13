@@ -46,3 +46,18 @@ config:
         idle-timeout: 1             # 단위는 초(s)
 ...
 ```
+
+## TODO
+
+- [ ] OpenTelemetry 통합하기
+
+## 참고
+
+- [Feature request plugin instance lifecycle hooks · Issue 78 · Konggo-pdk](https://github.com/Kong/go-pdk/issues/78)
+
+## 유용한 도구
+
+- [A hosted REST-API ready to respond to your AJAX requests](https://reqres.in/)
+- [Mockbin by Zuplo](https://mockbin.io/)
+- [dnnrlywait-for Super simple tool to help with orchestration of commands on the CLI by waiting on networking resources.](https://github.com/dnnrly/wait-for)
+- [A hosted REST-API ready to respond to your AJAX requests](https://reqres.in/)

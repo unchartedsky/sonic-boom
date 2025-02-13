@@ -94,6 +94,7 @@ func (conf *Config) cacheVersion() string {
 	return Version
 }
 
+// See https://github.com/Kong/go-pdk/issues/78
 func (conf *Config) Init() {
 	once.Do(func() {
 		if conf.logger != nil {

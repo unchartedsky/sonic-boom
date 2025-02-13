@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # See https://subvars.lmno.pk/01-installation/
-ENV SUBVARS_VERSION="0.1.3"
+ENV SUBVARS_VERSION="0.1.5"
 RUN wget -q https://github.com/kha7iq/subvars/releases/download/v${SUBVARS_VERSION}/subvars_Linux_x86_64.tar.gz && \
   tar -xf subvars_Linux_x86_64.tar.gz && \
   chmod +x subvars && \
