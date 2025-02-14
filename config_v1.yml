@@ -30,6 +30,7 @@ services:
         vary_headers:
           - Authorization
         cache_ttl: 15
+        cacheable_body_max_size: 1000000
         strategy: redis
         redis:
           host: redis
@@ -41,6 +42,14 @@ services:
           write-timeout: 0
           pool-timeout: 0
           idle-timeout: 0
+        log:
+          log_level: info
+          diode_enabled: false
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /var/log
+            filename: sonic-boom.log
 
   - host: reqres.in
     name: example2

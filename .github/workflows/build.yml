@@ -157,7 +157,7 @@ jobs:
         with:
           file: ${{ github.workspace }}/Dockerfile
           context: ${{ github.workspace }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.prep.outputs.tags }}
           pull: true
           push: true
