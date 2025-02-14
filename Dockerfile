@@ -23,8 +23,11 @@ RUN wget -q https://github.com/hbagdi/hupit/releases/download/v${HUPIT_VERSION}/
   chmod +x hupit && \
   mv hupit /usr/local/bin/hupit
 
+COPY bin/linux-amd64/sonic-boom /kong/go-plugins/sonic-boom
+
 RUN mkdir -p /var/log/kong \
-    && chown -R kong:kong /var/log/kong
+    && chown -R kong:kong /var/log/kong \
+    && chown -R kong:kong /kong
 
 USER kong
 
@@ -35,5 +38,3 @@ ENV KONG_PLUGINSERVER_NAMES "sonic-boom"
 ENV KONG_PLUGINSERVER_SONIC_BOOM_START_CMD "/kong/go-plugins/sonic-boom"
 ENV KONG_PLUGINSERVER_SONIC_BOOM_QUERY_CMD "/kong/go-plugins/sonic-boom -dump"
 ENV KONG_DATABASE "off"
-
-COPY bin/linux-amd64/sonic-boom /kong/go-plugins/sonic-boom
