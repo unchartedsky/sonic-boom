@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.source="https://github.com/unchartedsky/sonic-boo
 USER root
 
 RUN apt-get update && apt-get install -y \
-  curl wget jq \
+  curl wget jq vim \
   && rm -rf /var/lib/apt/lists/*
 
 # See https://subvars.lmno.pk/01-installation/
