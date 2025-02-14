@@ -33,14 +33,22 @@ jobs:
       && !startswith(github.event.commits[0].message, 'skip ci ')
       && !contains(github.event.commits[0].message, '[wip]')
       && !startswith(github.event.commits[0].message, 'wip ')
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 #    runs-on: self-hosted
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        go-version:
-          - '>=1.23.0'
+        include:
+          - os: ubuntu-24.04
+            go-os: linux
+            go-arch: amd64
+            go-version: '1.24.0'
+          # ARM64를 지원하려면 Dockerfile 수정이 필요
+          # - os: ubuntu-24.04-arm
+          #   go-os: linux
+          #   go-arch: arm64
+          #   go-version: '1.24.0'
     steps:
       - name: Env
         run: |
@@ -86,21 +94,20 @@ jobs:
           go generate ./...
           go build -o bin/${GOOS}-${GOARCH}/sonic-boom main.go
         env:
-          GOOS: linux
-          GOARCH: amd64
+          GOOS: ${{ matrix.go-os }}
+          GOARCH: ${{ matrix.go-arch }}
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.60
+          version: v1.64.5
 
       - name: Test
         run: |
           go test -v ./...
         env:
-          DD_SERVICE: ${{ github.workflow }}
-          GOOS: linux
-          GOARCH: amd64
+          GOOS: ${{ matrix.go-os }}
+          GOARCH: ${{ matrix.go-arch }}
 
       - name: Prepare
         id: prep
@@ -157,25 +164,10 @@ jobs:
         with:
           file: ${{ github.workspace }}/Dockerfile
           context: ${{ github.workspace }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
+          # platforms: linux/amd64,linux/arm64
           tags: ${{ steps.prep.outputs.tags }}
           pull: true
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - uses: skolobov/gh-action-slack@v1
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        with:
-          status: ${{ job.status }}
-          steps: ${{ toJson(steps) }}
-          channel: '#dev-github'
-        if: |
-          !success()
-          && (
-            contains(github.ref, 'main')
-            || contains(github.ref, 'master')
-            || contains(github.ref, 'develop')
-            || contains(github.ref, 'release')
-          )

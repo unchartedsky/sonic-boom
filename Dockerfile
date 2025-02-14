@@ -1,5 +1,8 @@
 FROM kong:3.9.0-ubuntu
 
+ARG TARGETOS
+ARG TARGETARCH
+
 LABEL org.opencontainers.image.source="https://github.com/unchartedsky/sonic-boom"
 
 USER root
@@ -23,7 +26,7 @@ RUN wget -q https://github.com/hbagdi/hupit/releases/download/v${HUPIT_VERSION}/
   chmod +x hupit && \
   mv hupit /usr/local/bin/hupit
 
-COPY bin/linux-amd64/sonic-boom /kong/go-plugins/sonic-boom
+COPY bin/${TARGETOS}-${TARGETARCH}/sonic-boom /kong/go-plugins/sonic-boom
 
 RUN mkdir -p /var/log/kong \
     && chown -R kong:kong /var/log/kong \
