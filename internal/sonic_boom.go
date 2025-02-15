@@ -96,22 +96,8 @@ func (conf *Config) cacheVersion() string {
 
 // See https://github.com/Kong/go-pdk/issues/78
 func (conf *Config) Init() {
+	// Redis 풀과 같은 공유 리소스만 once.Do()로 초기화
 	once.Do(func() {
-		if conf.logger != nil {
-			panic("Logger is already initialized")
-		}
-		conf.logger = NewLogger(&conf.LogConf)
-
-		for _, filter := range conf.Filters {
-			if defaults.CanUpdate(filter.CacheTTL) {
-				filter.CacheTTL = conf.CacheTTL
-			}
-		}
-
-		if conf.CacheVersion == "" {
-			conf.CacheVersion = conf.cacheVersion()
-		}
-
 		ctx := context.Background()
 		pool, err := NewRedisPool(ctx, conf.Redis)
 		if err != nil {
@@ -119,6 +105,20 @@ func (conf *Config) Init() {
 		}
 		redisPool = pool
 	})
+
+	// logger는 매 Config 인스턴스마다 개별적으로 초기화
+	conf.logger = NewLogger(&conf.LogConf)
+
+	// 나머지 설정들 초기화
+	for _, filter := range conf.Filters {
+		if defaults.CanUpdate(filter.CacheTTL) {
+			filter.CacheTTL = conf.CacheTTL
+		}
+	}
+
+	if conf.CacheVersion == "" {
+		conf.CacheVersion = conf.cacheVersion()
+	}
 }
 
 func (conf *Config) Close() error {

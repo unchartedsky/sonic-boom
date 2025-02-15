@@ -44,6 +44,7 @@ jobs:
             go-os: linux
             go-arch: amd64
             go-version: '1.24.0'
+            image-name: "ghcr.io/unchartedsky/sonic-boom"
           # ARM64를 지원하려면 Dockerfile 수정이 필요
           # - os: ubuntu-24.04-arm
           #   go-os: linux
@@ -112,7 +113,6 @@ jobs:
       - name: Prepare
         id: prep
         run: |
-          DOCKER_IMAGE=ghcr.io/unchartedsky/sonic-boom
           VERSION=edge
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             VERSION=nightly
@@ -138,6 +138,8 @@ jobs:
             TAGS="$TAGS,${DOCKER_IMAGE}:latest"
           fi
           echo ::set-output name=tags::${TAGS}
+        env:
+          DOCKER_IMAGE: ${{ matrix.image-name }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -152,6 +154,17 @@ jobs:
           docker version
           docker buildx version
           docker buildx ls
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image-name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
