@@ -4,13 +4,18 @@ set -x
 
 if ! (type air > /dev/null); then
   go install github.com/air-verse/air@latest
+  # curl -sSfL https://goblin.run/github.com/air-verse/air | sh
+fi
+
+if ! (type docker-compose > /dev/null); then
+  brew install docker-compose
 fi
 
 if [[ "${GOOS}" == "" ]]; then
   GOOS=linux
 fi
 if [[ "${GOARCH}" == "" ]]; then
-  GOARCH=amd64
+  GOARCH="${ARCH}"
 fi
 
 mkdir -p "bin/${GOOS}-${GOARCH}"

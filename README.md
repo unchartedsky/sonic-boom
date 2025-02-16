@@ -49,6 +49,7 @@ config:
 
 ## TODO
 
+- [ ] `linux/arm64` 컨테이너 이미지 지원
 - [ ] OpenTelemetry 통합하기
 
 ## 참고

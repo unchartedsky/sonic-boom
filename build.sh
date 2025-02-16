@@ -6,7 +6,7 @@ if [[ "${GOOS}" == "" ]]; then
   GOOS=linux
 fi
 if [[ "${GOARCH}" == "" ]]; then
-  GOARCH=amd64
+  GOARCH="${ARCH}"
 fi
 
 mkdir -p "bin/${GOOS}-${GOARCH}"

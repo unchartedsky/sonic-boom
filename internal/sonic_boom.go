@@ -8,13 +8,16 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Kong/go-pdk"
 	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
 	"github.com/creasty/defaults"
+	"github.com/eko/gocache/lib/v4/cache"
 	lib_store "github.com/eko/gocache/lib/v4/store"
+	redis_store "github.com/eko/gocache/store/redis/v4"
+
+	//lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -24,10 +27,6 @@ import (
 
 var Version = "1.0"
 var Priority = 1
-
-var once sync.Once
-
-var redisPool *RedisPool
 
 // TODO cache control 은 나중에 구현하자
 type Config struct {
@@ -96,16 +95,6 @@ func (conf *Config) cacheVersion() string {
 
 // See https://github.com/Kong/go-pdk/issues/78
 func (conf *Config) Init() {
-	// Redis 풀과 같은 공유 리소스만 once.Do()로 초기화
-	once.Do(func() {
-		ctx := context.Background()
-		pool, err := NewRedisPool(ctx, conf.Redis)
-		if err != nil {
-			panic(err)
-		}
-		redisPool = pool
-	})
-
 	// logger는 매 Config 인스턴스마다 개별적으로 초기화
 	conf.logger = NewLogger(&conf.LogConf)
 
@@ -126,6 +115,16 @@ func (conf *Config) Close() error {
 		conf.logger.Close()
 	}
 	return nil
+}
+
+func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
+	if timeout < -1 {
+		return time.Duration(-1)
+	} else if timeout <= 0 {
+		return time.Duration(timeout)
+	}
+
+	return time.Duration(timeout) * timeUnit
 }
 
 func (conf *Config) Access(kong *pdk.PDK) {
@@ -200,20 +199,27 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	ctx := context.Background()
 
-	pooled, err := redisPool.BorrowObject(ctx)
-	if err != nil {
-		conf.logger.Error().Err(err).Msg("Failed to borrow marshaler from Redis pool")
-		return
-	}
-	defer func() {
-		poolErr := redisPool.ReturnObject(ctx, pooled)
-		if poolErr != nil {
-			conf.logger.Error().Err(poolErr).Msg("Failed to return marshaler to Redis pool")
-		}
-	}()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+		DB:              conf.Redis.DBNumber,
+		PoolSize:        conf.Redis.PoolSize,
+		MaxRetries:      conf.Redis.MaxRetries,
+		MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
+		MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
+		DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
+		ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
+		WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
+		PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
+		ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
+	})
 
-	cached, err := pooled.Marshaler.Get(ctx, cacheKeyID, new(CacheValue))
-	if cached == nil || err != nil || err == redis.Nil {
+	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheTTL)*time.Second)) // 만료 시간 설정 (선택 사항))
+
+	// 캐시 인스턴스 생성
+	cacheManager := cache.New[*CacheValue](redisStore)
+
+	cacheValue, err := cacheManager.Get(ctx, cacheKeyID)
+	if cacheValue == nil || err != nil || err == redis.Nil {
 		logger.Debug().Msg("Cache miss")
 
 		if err == redis.Nil {
@@ -248,7 +254,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	logger.Debug().Msg("Cache hit")
 
-	cacheValue := cached.(*CacheValue)
 	cacheSignal := CacheSignal{
 		CacheKeyID: cacheKeyID,
 		CacheTTL:   cacheTTL,
@@ -256,7 +261,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if cacheValue.Version != conf.CacheVersion {
 		logger.Warn().Msgf("Cache version mismatch, purging: %s != %s", cacheValue.Version, conf.CacheVersion)
-		if err = pooled.Marshaler.Delete(ctx, cacheKeyID); err != nil {
+		if err = cacheManager.Delete(ctx, cacheKeyID); err != nil {
 			logger.Error().Err(err).Msg("Purging cache failed")
 			return
 		}
@@ -637,20 +642,27 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	ctx := context.Background()
 
-	pooled, err := redisPool.BorrowObject(ctx)
-	if err != nil {
-		conf.logger.Error().Err(err).Msg("Failed to borrow marshaler")
-		return
-	}
-	defer func() {
-		poolErr := redisPool.ReturnObject(ctx, pooled)
-		if poolErr != nil {
-			conf.logger.Error().Err(poolErr).Msg("Failed to return marshaler to Redis pool")
-		}
-	}()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+		DB:              conf.Redis.DBNumber,
+		PoolSize:        conf.Redis.PoolSize,
+		MaxRetries:      conf.Redis.MaxRetries,
+		MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
+		MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
+		DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
+		ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
+		WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
+		PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
+		ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
+	})
+
+	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)) // 만료 시간 설정 (선택 사항))
+
+	// 캐시 인스턴스 생성
+	cacheManager := cache.New[*CacheValue](redisStore)
 
 	cacheKeyID := cacheSignal.CacheKeyID
-	if err = pooled.Marshaler.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
+	if err = cacheManager.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
