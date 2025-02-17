@@ -34,21 +34,21 @@ services:
         strategy: redis
         redis:
           host: redis
-          pool-size: 10
-          max-retries: 5
-          db-number: 1
-          dial-timeout: 0
-          read-timeout: 0
-          write-timeout: 0
-          pool-timeout: 0
-          idle-timeout: 0
+          pool_size: 10
+          max_retries: 5
+          db_number: 1
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
         log:
           log_level: info
           diode_enabled: false
           console_logging_enabled: true
           file_log:
             enabled: true
-            folder: /var/log
+            folder: /tmp
             filename: sonic-boom-redis.log
 
   - host: reqres.in
@@ -83,8 +83,8 @@ services:
         cache_ttl: 15
         cacheable_body_max_size: 1000000
         strategy: in-memory
-        in-memory:
-          max_cost: 100
+        in_memory:
+          max_cost: 1000000
           num_counters: 1000
           buffer_items: 64
         log:
@@ -93,7 +93,7 @@ services:
           console_logging_enabled: true
           file_log:
             enabled: true
-            folder: /var/log
+            folder: /tmp
             filename: sonic-boom-in-memory.log
 
   - host: reqres.in

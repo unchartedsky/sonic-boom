@@ -29,10 +29,16 @@ import (
 	"gopkg.in/go-playground/validator.v9"
 )
 
-var Version = "1.0"
+var Version = "1.0.4"
 var Priority = 1
 
 // TODO cache control 은 나중에 구현하자
+
+type InMemoryConfig struct {
+	MaxCost     int `json:"max_cost" validate:"gte=0" default:"1000000"`
+	NumCounters int `json:"num_counters" validate:"gte=0" default:"1000000"`
+	BufferItems int `json:"buffer_items" validate:"gte=0" default:"64"`
+}
 type Config struct {
 	ResponseCodes        []int          `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
 	RequestMethods       []string       `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
@@ -44,17 +50,11 @@ type Config struct {
 	CacheableBodyMaxSize int            `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
 	CacheVersion         string         `json:"cache_version" validate:"" default:""`
 	Strategy             string         `json:"strategy" validate:"required,oneof=redis in-memory" default:"redis"`
-	Redis                RedisConfig    `json:"redis"`
-	InMemory             InMemoryConfig `json:"in_memory"`
+	Redis                RedisConfig    `json:"redis" default:"{}"`
+	InMemory             InMemoryConfig `json:"in_memory" default:"{}"`
 	LogConf              LogConfig      `json:"log" validate:"" default:"{}"`
 
 	logger *Logger `validate:"-"`
-}
-
-type InMemoryConfig struct {
-	MaxCost     int64 `json:"max_cost" validate:"gte=0" default:"1000000"`
-	NumCounters int64 `json:"num_counters" validate:"gte=0" default:"1000000"`
-	BufferItems int64 `json:"buffer_items" validate:"gte=0" default:"64"`
 }
 
 type Filter struct {
@@ -95,10 +95,10 @@ func (conf *Config) isDebug() bool {
 }
 
 func (conf *Config) cacheVersion() string {
-	datadogVersion := os.Getenv("DD_VERSION")
-	if datadogVersion != "" {
-		conf.logger.Info().Msgf("DD_VERSION: %s", datadogVersion)
-		return datadogVersion
+	fromEnv := os.Getenv("CACHE_VERSION")
+	if fromEnv != "" {
+		conf.logger.Info().Msgf("CACHE_VERSION: %s", fromEnv)
+		return fromEnv
 	}
 
 	return Version
@@ -160,9 +160,9 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 
 	case "in-memory":
 		cache, err := ristretto.NewCache(&ristretto.Config{
-			MaxCost:     conf.InMemory.MaxCost,
-			NumCounters: conf.InMemory.NumCounters,
-			BufferItems: conf.InMemory.BufferItems,
+			MaxCost:     int64(conf.InMemory.MaxCost),
+			NumCounters: int64(conf.InMemory.NumCounters),
+			BufferItems: int64(conf.InMemory.BufferItems),
 			Metrics:     true,
 		})
 		if err != nil {

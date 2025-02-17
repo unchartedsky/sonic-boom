@@ -40,16 +40,16 @@ config:
     redis:
         host: redis                 # 접근할 Redis 호스트명. 기본값 localhost
         port: 6379                  # 접근할 Redis 포트번호. 기본값 6379
-        pool-size: 10               # 기본값 10.
-        max-retries: 5              # 재시도. 기본값 3. 끄고 싶을 경우, -1
-        db-number: 0                # 기본값 0
-        min-retry-backoff-ms: 8     # 단위는 ms
-        max-retry-backoff-ms: 512   # 단위는 ms
-        dial-timeout: 5             # 단위는 초(s)
-        read-timeout: 3             # 단위는 초(s)
-        write-timeout: 3            # 단위는 초(s)
-        pool-timeout: 5             # 단위는 초(s)
-        idle-timeout: 1             # 단위는 초(s)
+        pool_size: 10               # 기본값 10.
+        max_retries: 5              # 재시도. 기본값 3. 끄고 싶을 경우, -1
+        db_number: 0                # 기본값 0
+        min_retry_backoff_ms: 8     # 단위는 ms
+        max_retry_backoff_ms: 512   # 단위는 ms
+        dial_timeout: 5             # 단위는 초(s)
+        read_timeout: 3             # 단위는 초(s)
+        write_timeout: 3            # 단위는 초(s)
+        pool_timeout: 5             # 단위는 초(s)
+        idle_timeout: 1             # 단위는 초(s)
 ...
 ```
 
