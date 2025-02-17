@@ -1,15 +1,16 @@
 package internal
 
 import (
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/Kong/go-pdk"
 	"github.com/Kong/go-pdk/bridge"
 	"github.com/Kong/go-pdk/bridge/bridgetest"
 	"github.com/Kong/go-pdk/log"
 	"github.com/Kong/go-pdk/request"
 	"github.com/stretchr/testify/assert"
-	"reflect"
-	"testing"
-	"time"
 )
 
 func defaultLogger() *Logger {
@@ -413,6 +414,12 @@ func configDefault() *Config {
 		CacheControl:         false,
 		CacheableBodyMaxSize: 0,
 		Strategy:             "redis",
+
+		InMemory: InMemoryConfig{
+			MaxCost:     1000000,
+			NumCounters: 1000000,
+			BufferItems: 64,
+		},
 
 		Redis: RedisConfig{
 			Host:              "localhost",

@@ -15,31 +15,44 @@ echo "Benchmarking..."
 docker-compose stop || /bin/true
 docker-compose rm -f || /bin/true
 
-echo "Without a plugin..."
+# echo "Without a plugin..."
 
-docker-compose up -d
+# docker-compose up -d --build
 
-wait-for "http://localhost:8000/noplugins/api/users?page=1"
-echo "All services are up and running!"
+# wait-for "http://localhost:8000/noplugins/api/users?page=1"
+# echo "All services are up and running!"
 
-ab -n 1000 -k -c 4 \
-  -A "username1:password1" \
-  "http://localhost:8000/noplugins/api/users?page=1"
+# ab -n 1000 -k -c 4 \
+#   -A "username1:password1" \
+#   "http://localhost:8000/noplugins/api/users?page=1"
 
-docker-compose stop || /bin/true
-docker-compose rm -f || /bin/true
+# docker-compose stop || /bin/true
+# docker-compose rm -f || /bin/true
 
 
-echo "With a plugin..."
-docker-compose up -d
+echo "With a in-memory caching plugin..."
+docker-compose up -d --build
 
-wait-for "http://localhost:8000/ex1/api/users?page=2"
+wait-for "http://localhost:8000/in-memory/api/users?page=2"
 echo "All services are up and running!"
 
 ab -n 1000 -k -c 4 \
   -A "username2:password1" \
-  "http://localhost:8000/ex1/api/users?page=2"
+  "http://localhost:8000/in-memory/api/users?page=2"
 
 docker-compose stop || /bin/true
 docker-compose rm -f || /bin/true
 
+
+echo "With a Redis caching plugin..."
+docker-compose up -d --build
+
+wait-for "http://localhost:8000/redis/api/users?page=2"
+echo "All services are up and running!"
+
+ab -n 1000 -k -c 4 \
+  -A "username2:password1" \
+  "http://localhost:8000/redis/api/users?page=2"
+
+docker-compose stop || /bin/true
+docker-compose rm -f || /bin/true

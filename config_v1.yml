@@ -1,13 +1,13 @@
 _format_version: "1.1"
 services:
   - host: reqres.in
-    name: example1
+    name: example-redis
     port: 443
     protocol: https
     routes:
-      - name: route1
+      - name: route-redis
         paths:
-          - /ex1
+          - /redis
         strip_path: true
 
     plugins:
@@ -34,31 +34,76 @@ services:
         strategy: redis
         redis:
           host: redis
-          pool-size: 10
-          max-retries: 5
-          db-number: 1
-          dial-timeout: 0
-          read-timeout: 0
-          write-timeout: 0
-          pool-timeout: 0
-          idle-timeout: 0
+          pool_size: 10
+          max_retries: 5
+          db_number: 1
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
         log:
           log_level: info
           diode_enabled: false
           console_logging_enabled: true
           file_log:
             enabled: true
-            folder: /var/log
-            filename: sonic-boom.log
+            folder: /tmp
+            filename: sonic-boom-redis.log
 
   - host: reqres.in
-    name: example2
+    name: example-in-memory
     port: 443
     protocol: https
     routes:
-      - name: route2
+      - name: route-in-memory
         paths:
-          - /ex2
+          - /in-memory
+        strip_path: true
+
+    plugins:
+    - name: sonic-boom
+      config:
+        response_code:
+          - 200
+          - 301
+          - 404
+        request_method:
+          - GET
+          - HEAD
+          - POST
+          - PUT
+        content_type:
+          - "text/plain"
+          - "text/html; charset=utf-8"
+          - "application/json"
+          - "application/json; charset=utf-8"
+        vary_headers:
+          - Authorization
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: in-memory
+        in_memory:
+          max_cost: 1000000
+          num_counters: 1000
+          buffer_items: 64
+        log:
+          log_level: info
+          diode_enabled: false
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /tmp
+            filename: sonic-boom-in-memory.log
+
+  - host: reqres.in
+    name: example
+    port: 443
+    protocol: https
+    routes:
+      - name: route
+        paths:
+          - /ex
         strip_path: true
 
     plugins:
