@@ -12,8 +12,12 @@ RUN ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -y \
     && apt-get upgrade -y \
-    && apt-get install -y \
-        curl wget jq vim inotify-tools \
+    && apt-get install -y --no-install-recommends \
+    curl wget jq vim inotify-tools build-essential \
+    && luarocks install lua-cjson \
+    && apt-get remove -y build-essential \
+    && apt-get autoremove -y \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # See https://subvars.lmno.pk/01-installation/

@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/eko/gocache/lib/v4/marshaler"
 	"log"
 	"os"
 	"reflect"
@@ -216,10 +217,11 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheTTL)*time.Second)) // 만료 시간 설정 (선택 사항))
 
 	// 캐시 인스턴스 생성
-	cacheManager := cache.New[*CacheValue](redisStore)
+	cacheManager := cache.New[any](redisStore)
+	marshal := marshaler.New(cacheManager)
 
-	cacheValue, err := cacheManager.Get(ctx, cacheKeyID)
-	if cacheValue == nil || err != nil || err == redis.Nil {
+	cached, err := marshal.Get(ctx, cacheKeyID, new(CacheValue))
+	if cached == nil || err != nil || err == redis.Nil {
 		logger.Debug().Msg("Cache miss")
 
 		if err == redis.Nil {
@@ -254,6 +256,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	logger.Debug().Msg("Cache hit")
 
+	cacheValue := cached.(*CacheValue)
 	cacheSignal := CacheSignal{
 		CacheKeyID: cacheKeyID,
 		CacheTTL:   cacheTTL,
@@ -658,11 +661,12 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)) // 만료 시간 설정 (선택 사항))
 
-	// 캐시 인스턴스 생성
-	cacheManager := cache.New[*CacheValue](redisStore)
+	// Initialize chained cache
+	cacheManager := cache.New[any](redisStore)
+	marshal := marshaler.New(cacheManager)
 
 	cacheKeyID := cacheSignal.CacheKeyID
-	if err = cacheManager.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
+	if err = marshal.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
