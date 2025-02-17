@@ -5,6 +5,7 @@ services:
       - '6379:6379'
 
   kong:
+    # image: ghcr.io/unchartedsky/sonic-boom:sha-01f9cc1
     # image: kong:3.9.0-ubuntu
     build: .
     environment:

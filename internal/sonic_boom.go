@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eko/gocache/lib/v4/marshaler"
@@ -17,11 +18,12 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/eko/gocache/lib/v4/cache"
 	lib_store "github.com/eko/gocache/lib/v4/store"
+	gocache_store "github.com/eko/gocache/store/go_cache/v4"
 	redis_store "github.com/eko/gocache/store/redis/v4"
+	gocache "github.com/patrickmn/go-cache"
 
 	//lib_store "github.com/eko/gocache/lib/v4/store"
-	"github.com/dgraph-io/ristretto"
-	ristretto_store "github.com/eko/gocache/store/ristretto/v4"
+
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -29,8 +31,17 @@ import (
 	"gopkg.in/go-playground/validator.v9"
 )
 
-var Version = "1.0.4"
-var Priority = 1
+var (
+	Version  = "1.0"
+	Priority = 1
+
+	gocacheClient *gocache.Cache
+	cacheStore    lib_store.StoreInterface
+	redisClient   *redis.Client
+
+	initOnce sync.Once
+	mu       sync.RWMutex
+)
 
 // TODO cache control 은 나중에 구현하자
 
@@ -139,41 +150,39 @@ func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
 }
 
 func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Marshaler, error) {
-	var cacheStore lib_store.StoreInterface
+	initOnce.Do(func() {
+		mu.Lock()
+		defer mu.Unlock()
 
-	switch conf.Strategy {
-	case "redis":
-		rdb := redis.NewClient(&redis.Options{
-			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
-			DB:              conf.Redis.DBNumber,
-			PoolSize:        conf.Redis.PoolSize,
-			MaxRetries:      conf.Redis.MaxRetries,
-			MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
-			MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
-			DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
-			ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
-			WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
-			PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
-			ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
-		})
-		cacheStore = redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+		switch conf.Strategy {
+		case "redis":
+			redisClient = redis.NewClient(&redis.Options{
+				Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+				DB:              conf.Redis.DBNumber,
+				PoolSize:        conf.Redis.PoolSize,
+				MaxRetries:      conf.Redis.MaxRetries,
+				MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
+				MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
+				DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
+				ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
+				WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
+				PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
+				ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
+			})
+			cacheStore = redis_store.NewRedis(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
 
-	case "in-memory":
-		cache, err := ristretto.NewCache(&ristretto.Config{
-			MaxCost:     int64(conf.InMemory.MaxCost),
-			NumCounters: int64(conf.InMemory.NumCounters),
-			BufferItems: int64(conf.InMemory.BufferItems),
-			Metrics:     true,
-		})
-		if err != nil {
-			return nil, nil, err
+		case "in-memory":
+			gocacheClient = gocache.New(time.Duration(ttl)*time.Second, time.Duration(ttl)*time.Second)
+			cacheStore = gocache_store.NewGoCache(gocacheClient)
 		}
-		cacheStore = ristretto_store.NewRistretto(cache, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+	})
 
-	default:
+	if cacheStore == nil {
 		return nil, nil, fmt.Errorf("unknown cache strategy: %s", conf.Strategy)
 	}
 
+	mu.RLock()
+	defer mu.RUnlock()
 	cacheManager := cache.New[any](cacheStore)
 	marshal := marshaler.New(cacheManager)
 	return cacheManager, marshal, nil
