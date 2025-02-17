@@ -39,17 +39,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        go-version:
+          - '1.24.0'
+        platform:
+          - linux-amd64
+          - linux-arm64
         include:
-          - os: ubuntu-24.04
+          - platform: linux-amd64
+            os: ubuntu-24.04
             go-os: linux
             go-arch: amd64
-            go-version: '1.24.0'
-            image-name: "ghcr.io/unchartedsky/sonic-boom"
-          # ARM64를 지원하려면 Dockerfile 수정이 필요
-          # - os: ubuntu-24.04-arm
-          #   go-os: linux
-          #   go-arch: arm64
-          #   go-version: '1.24.0'
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            go-os: linux
+            go-arch: arm64
     steps:
       - name: Env
         run: |
@@ -88,16 +91,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}${{ github.workflow }}-go-
 
-      - name: Build
-        run: |
-          mkdir -p "bin/${GOOS}-${GOARCH}"
-
-          go generate ./...
-          go build -o bin/${GOOS}-${GOARCH}/sonic-boom main.go
-        env:
-          GOOS: ${{ matrix.go-os }}
-          GOARCH: ${{ matrix.go-arch }}
-
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
@@ -110,77 +103,159 @@ jobs:
           GOOS: ${{ matrix.go-os }}
           GOARCH: ${{ matrix.go-arch }}
 
-      - name: Prepare
-        id: prep
+      - name: Build
         run: |
-          VERSION=edge
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            VERSION=nightly
-          elif [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            VERSION=${GITHUB_REF#refs/heads/}
-          else
-            VERSION=${GITHUB_HEAD_REF}
-          fi
-          VERSION=$(echo "${VERSION}" | sed -r 's/\//_/g')
-          TAGS="${DOCKER_IMAGE}:${VERSION}"
+          mkdir -p "bin/${GOOS}-${GOARCH}"
 
-          if [[ "${VERSION}" == "master" ]]; then
-            TAGS="$TAGS,${DOCKER_IMAGE}:latest"
-          fi
-
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            TAGS="$TAGS,${DOCKER_IMAGE}:${GITHUB_REF#refs/tags/v}"
-          fi
-
-          SHORT_ID=$(echo ${GITHUB_SHA} | cut -c -7)
-          TAGS="$TAGS,${DOCKER_IMAGE}:sha-${SHORT_ID}"
-          if [[ $VERSION =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            TAGS="$TAGS,${DOCKER_IMAGE}:latest"
-          fi
-          echo ::set-output name=tags::${TAGS}
+          go generate ./...
+          go build -o bin/${GOOS}-${GOARCH}/sonic-boom main.go
         env:
-          DOCKER_IMAGE: ${{ matrix.image-name }}
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          install: true
+          GOOS: ${{ matrix.go-os }}
+          GOARCH: ${{ matrix.go-arch }}
 
-      - name: Test
-        run: |
-          set -x
-          docker version
-          docker buildx version
-          docker buildx ls
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          images: ${{ matrix.image-name }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+          name: sonic-boom-${{ matrix.platform }}
+          path: bin/${{ matrix.go-os }}-${{ matrix.go-arch }}/sonic-boom
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+  container:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image-name:
+          - "ghcr.io/unchartedsky/sonic-boom"
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
+        persist-credentials: false
 
-      - uses: docker/build-push-action@v3
-        with:
-          file: ${{ github.workspace }}/Dockerfile
-          context: ${{ github.workspace }}
-          platforms: linux/amd64
-          # platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.prep.outputs.tags }}
-          pull: true
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+    - name: Prepare
+      id: prep
+      run: |
+        VERSION=edge
+        if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          VERSION=nightly
+        elif [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          VERSION=${GITHUB_REF#refs/heads/}
+        else
+          VERSION=${GITHUB_HEAD_REF}
+        fi
+        VERSION=$(echo "${VERSION}" | sed -r 's/\//_/g')
+        TAGS="${DOCKER_IMAGE}:${VERSION}"
+
+        if [[ "${VERSION}" == "master" ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:latest"
+        fi
+
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:${GITHUB_REF#refs/tags/v}"
+        fi
+
+        SHORT_ID=$(echo ${GITHUB_SHA} | cut -c -7)
+        TAGS="$TAGS,${DOCKER_IMAGE}:sha-${SHORT_ID}"
+        if [[ $VERSION =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:latest"
+        fi
+        echo ::set-output name=tags::${TAGS}
+      env:
+        DOCKER_IMAGE: ${{ matrix.image-name }}
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      id: buildx
+      with:
+        install: true
+
+    - name: Test
+      run: |
+        set -x
+        docker version
+        docker buildx version
+        docker buildx ls
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ matrix.image-name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Prepare artifacts
+      run: |
+        mkdir -p bin/linux-amd64
+        mv sonic-boom-linux-amd64/sonic-boom bin/linux-amd64/sonic-boom
+
+        mkdir -p bin/linux-arm64
+        mv sonic-boom-linux-arm64/sonic-boom bin/linux-arm64/sonic-boom
+
+    - uses: docker/build-push-action@v3
+      with:
+        file: ${{ github.workspace }}/Dockerfile
+        context: ${{ github.workspace }}
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.prep.outputs.tags }}
+        pull: true
+        push: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./sonic-boom-linux-amd64/sonic-boom
+        asset_name: sonic-boom-linux-amd64
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release Assets (ARM64)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./sonic-boom-linux-arm64/sonic-boom
+        asset_name: sonic-boom-linux-arm64
+        asset_content_type: application/octet-stream

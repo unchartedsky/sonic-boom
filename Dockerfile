@@ -7,33 +7,27 @@ LABEL org.opencontainers.image.source="https://github.com/unchartedsky/sonic-boo
 
 USER root
 
+RUN ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
+    && echo "Asia/Seoul" > /etc/timezone
+
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -y \
     && apt-get upgrade -y \
     && apt-get install -y \
-    curl wget jq vim \
+        curl wget jq vim inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # See https://subvars.lmno.pk/01-installation/
 ENV SUBVARS_VERSION "0.1.5"
-RUN wget -q https://github.com/kha7iq/subvars/releases/download/v${SUBVARS_VERSION}/subvars_Linux_x86_64.tar.gz && \
-    tar -xf subvars_Linux_x86_64.tar.gz && \
-    chmod +x subvars && \
-    mv subvars /usr/local/bin/subvars
-
-# See https://github.com/hbagdi/hupit
-ENV HUPIT_VERSION "0.1.0"
-# https://github.com/hbagdi/hupit/releases/download/v0.1.0/hupit_0.1.0_linux_amd64.tar.gz
-RUN wget -q https://github.com/hbagdi/hupit/releases/download/v${HUPIT_VERSION}/hupit_${HUPIT_VERSION}_linux_amd64.tar.gz && \
-    tar -xf hupit_${HUPIT_VERSION}_linux_amd64.tar.gz && \
-    chmod +x hupit && \
-    mv hupit /usr/local/bin/hupit
+RUN wget -q https://github.com/kha7iq/subvars/releases/download/v${SUBVARS_VERSION}/subvars_${TARGETARCH}.deb \
+    && dpkg --install subvars_${TARGETARCH}.deb \
+    && rm -f subvars_${TARGETARCH}.deb
 
 COPY bin/${TARGETOS}-${TARGETARCH}/sonic-boom /kong/go-plugins/sonic-boom
-# COPY bin/linux-amd64/sonic-boom /kong/go-plugins/sonic-boom
 
 RUN mkdir -p /var/log/kong \
     && chown -R kong:kong /var/log/kong \
-    && chown -R kong:kong /kong
+    && chown -R kong:kong /kong \
+    && chmod +x /kong/go-plugins/sonic-boom
 
 USER kong
 

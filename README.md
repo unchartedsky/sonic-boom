@@ -7,7 +7,13 @@
 docker-compose logs -f
 ```
 
+```bash
+./test.sh`
+```
+
 ## Config 주요 설정 예시
+
+[confg_v1.yml](./confg_v1.yml), [confg_v2.yml](./confg_v2.yml)를 참고하십시오.
 
 ```yaml
 ...
@@ -49,8 +55,8 @@ config:
 
 ## TODO
 
-- [ ] `linux/arm64` 컨테이너 이미지 지원
-- [ ] 바이너리 릴리즈
+- [x] `linux/arm64` 컨테이너 이미지 지원 ✅ 2025-02-17
+- [x] 바이너리 릴리즈 ✅ 2025-02-17
 - [ ] in-memory 스토어 지원
 - [ ] Redis cluster 스토어 지원
 - [ ] OpenTelemetry 통합
