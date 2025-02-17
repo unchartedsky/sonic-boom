@@ -207,7 +207,7 @@ jobs:
         mkdir -p bin/linux-arm64
         mv sonic-boom-linux-arm64/sonic-boom bin/linux-arm64/sonic-boom
 
-    - uses: docker/build-push-action@v3
+    - uses: docker/build-push-action@v6
       with:
         file: ${{ github.workspace }}/Dockerfile
         context: ${{ github.workspace }}
