@@ -3,13 +3,14 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/eko/gocache/lib/v4/marshaler"
 	"log"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eko/gocache/lib/v4/marshaler"
 
 	"github.com/Kong/go-pdk"
 	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
@@ -19,6 +20,8 @@ import (
 	redis_store "github.com/eko/gocache/store/redis/v4"
 
 	//lib_store "github.com/eko/gocache/lib/v4/store"
+	"github.com/dgraph-io/ristretto"
+	ristretto_store "github.com/eko/gocache/store/ristretto/v4"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -31,20 +34,27 @@ var Priority = 1
 
 // TODO cache control 은 나중에 구현하자
 type Config struct {
-	ResponseCodes        []int       `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
-	RequestMethods       []string    `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
-	ContentTypes         []string    `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
-	VaryHeaders          []string    `json:"vary_headers" validate:"required" default:"[]"`
-	Filters              []Filter    `json:"filters" validate:"required" default:"[]"`
-	CacheTTL             int         `json:"cache_ttl" validate:"gte=0" default:"0"`
-	CacheControl         bool        `json:"cache_control" validate:"" default:"false"`
-	CacheableBodyMaxSize int         `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
-	CacheVersion         string      `json:"cache_version" validate:"" default:""`
-	Strategy             string      `json:"strategy" validate:"required,oneof=redis" default:"redis"`
-	Redis                RedisConfig `json:"redis"`
-	LogConf              LogConfig   `json:"log" validate:"" default:"{}"`
+	ResponseCodes        []int          `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
+	RequestMethods       []string       `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
+	ContentTypes         []string       `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
+	VaryHeaders          []string       `json:"vary_headers" validate:"required" default:"[]"`
+	Filters              []Filter       `json:"filters" validate:"required" default:"[]"`
+	CacheTTL             int            `json:"cache_ttl" validate:"gte=0" default:"0"`
+	CacheControl         bool           `json:"cache_control" validate:"" default:"false"`
+	CacheableBodyMaxSize int            `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
+	CacheVersion         string         `json:"cache_version" validate:"" default:""`
+	Strategy             string         `json:"strategy" validate:"required,oneof=redis in-memory" default:"redis"`
+	Redis                RedisConfig    `json:"redis"`
+	InMemory             InMemoryConfig `json:"in_memory"`
+	LogConf              LogConfig      `json:"log" validate:"" default:"{}"`
 
 	logger *Logger `validate:"-"`
+}
+
+type InMemoryConfig struct {
+	MaxCost     int64 `json:"max_cost" validate:"gte=0" default:"1000000"`
+	NumCounters int64 `json:"num_counters" validate:"gte=0" default:"1000000"`
+	BufferItems int64 `json:"buffer_items" validate:"gte=0" default:"64"`
 }
 
 type Filter struct {
@@ -128,6 +138,47 @@ func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
 	return time.Duration(timeout) * timeUnit
 }
 
+func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Marshaler, error) {
+	var cacheStore lib_store.StoreInterface
+
+	switch conf.Strategy {
+	case "redis":
+		rdb := redis.NewClient(&redis.Options{
+			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+			DB:              conf.Redis.DBNumber,
+			PoolSize:        conf.Redis.PoolSize,
+			MaxRetries:      conf.Redis.MaxRetries,
+			MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
+			MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
+			DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
+			ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
+			WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
+			PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
+			ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
+		})
+		cacheStore = redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+
+	case "in-memory":
+		cache, err := ristretto.NewCache(&ristretto.Config{
+			MaxCost:     conf.InMemory.MaxCost,
+			NumCounters: conf.InMemory.NumCounters,
+			BufferItems: conf.InMemory.BufferItems,
+			Metrics:     true,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		cacheStore = ristretto_store.NewRistretto(cache, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+
+	default:
+		return nil, nil, fmt.Errorf("unknown cache strategy: %s", conf.Strategy)
+	}
+
+	cacheManager := cache.New[any](cacheStore)
+	marshal := marshaler.New(cacheManager)
+	return cacheManager, marshal, nil
+}
+
 func (conf *Config) Access(kong *pdk.PDK) {
 	// From https://github.com/lampnick/kong-rate-limiting-golang/blob/master/custom-rate-limiting.go
 	defer func() {
@@ -200,25 +251,11 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	ctx := context.Background()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
-		DB:              conf.Redis.DBNumber,
-		PoolSize:        conf.Redis.PoolSize,
-		MaxRetries:      conf.Redis.MaxRetries,
-		MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
-		MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
-		DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
-		ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
-		WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
-		PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
-		ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
-	})
-
-	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheTTL)*time.Second)) // 만료 시간 설정 (선택 사항))
-
-	// 캐시 인스턴스 생성
-	cacheManager := cache.New[any](redisStore)
-	marshal := marshaler.New(cacheManager)
+	_, marshal, err := conf.newCacheManager(cacheTTL)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to create cache manager")
+		return
+	}
 
 	cached, err := marshal.Get(ctx, cacheKeyID, new(CacheValue))
 	if cached == nil || err != nil || err == redis.Nil {
@@ -264,7 +301,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if cacheValue.Version != conf.CacheVersion {
 		logger.Warn().Msgf("Cache version mismatch, purging: %s != %s", cacheValue.Version, conf.CacheVersion)
-		if err = cacheManager.Delete(ctx, cacheKeyID); err != nil {
+		if err = marshal.Delete(ctx, cacheKeyID); err != nil {
 			logger.Error().Err(err).Msg("Purging cache failed")
 			return
 		}
@@ -645,25 +682,11 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	ctx := context.Background()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
-		DB:              conf.Redis.DBNumber,
-		PoolSize:        conf.Redis.PoolSize,
-		MaxRetries:      conf.Redis.MaxRetries,
-		MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
-		MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
-		DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
-		ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
-		WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
-		PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
-		ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
-	})
-
-	redisStore := redis_store.NewRedis(rdb, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)) // 만료 시간 설정 (선택 사항))
-
-	// Initialize chained cache
-	cacheManager := cache.New[any](redisStore)
-	marshal := marshaler.New(cacheManager)
+	_, marshal, err := conf.newCacheManager(int(cacheValue.TTL))
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to create cache manager")
+		return
+	}
 
 	cacheKeyID := cacheSignal.CacheKeyID
 	if err = marshal.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
