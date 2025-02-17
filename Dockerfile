@@ -30,6 +30,7 @@ RUN git clone https://github.com/stone-payments/kong-plugin-template-transformer
 RUN cd /kong-plugin-template-transformer && \
     make && \
     make install && \
+    luarocks install lua-cjson && \
     rm -rf kong-plugin-template-transformer
 
 ## 빌드 스테이지에서 플러그인 파일 복사
