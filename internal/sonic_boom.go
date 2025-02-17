@@ -18,12 +18,11 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/eko/gocache/lib/v4/cache"
 	lib_store "github.com/eko/gocache/lib/v4/store"
-	gocache_store "github.com/eko/gocache/store/go_cache/v4"
 	redis_store "github.com/eko/gocache/store/redis/v4"
-	gocache "github.com/patrickmn/go-cache"
 
 	//lib_store "github.com/eko/gocache/lib/v4/store"
-
+	"github.com/dgraph-io/ristretto"
+	ristretto_store "github.com/eko/gocache/store/ristretto/v4"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -32,15 +31,12 @@ import (
 )
 
 var (
-	Version  = "1.0"
+	Version  = "1.0.4"
 	Priority = 1
 
-	gocacheClient *gocache.Cache
-	cacheStore    lib_store.StoreInterface
-	redisClient   *redis.Client
-
-	initOnce sync.Once
-	mu       sync.RWMutex
+	// InMemory 설정값별로 캐시를 관리하기 위한 맵
+	ristrettoClients sync.Map // map[InMemoryConfig]*ristretto.Cache
+	cacheStores      sync.Map // map[InMemoryConfig]store.StoreInterface[any]
 )
 
 // TODO cache control 은 나중에 구현하자
@@ -150,42 +146,62 @@ func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
 }
 
 func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Marshaler, error) {
-	initOnce.Do(func() {
-		mu.Lock()
-		defer mu.Unlock()
+	switch conf.Strategy {
+	case "redis":
+		// Redis는 매번 새로운 인스턴스 생성
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+			DB:              conf.Redis.DBNumber,
+			PoolSize:        conf.Redis.PoolSize,
+			MaxRetries:      conf.Redis.MaxRetries,
+			MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
+			MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
+			DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
+			ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
+			WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
+			PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
+			ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
+		})
+		cacheStore := redis_store.NewRedis(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+		cacheManager := cache.New[any](cacheStore)
+		marshal := marshaler.New(cacheManager)
+		return cacheManager, marshal, nil
 
-		switch conf.Strategy {
-		case "redis":
-			redisClient = redis.NewClient(&redis.Options{
-				Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
-				DB:              conf.Redis.DBNumber,
-				PoolSize:        conf.Redis.PoolSize,
-				MaxRetries:      conf.Redis.MaxRetries,
-				MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
-				MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
-				DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
-				ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
-				WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
-				PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
-				ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
-			})
-			cacheStore = redis_store.NewRedis(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
-
-		case "in-memory":
-			gocacheClient = gocache.New(time.Duration(ttl)*time.Second, time.Duration(ttl)*time.Second)
-			cacheStore = gocache_store.NewGoCache(gocacheClient)
+	case "in-memory":
+		// 기존 캐시 스토어가 있는지 확인
+		if existingStore, ok := cacheStores.Load(conf.InMemory); ok {
+			cacheStore := existingStore.(lib_store.StoreInterface) // store.StoreInterface를 lib_store.StoreInterface로 변경
+			cacheManager := cache.New[any](cacheStore)
+			marshal := marshaler.New(cacheManager)
+			return cacheManager, marshal, nil
 		}
-	})
 
-	if cacheStore == nil {
+		// 새로운 캐시 생성
+		config := &ristretto.Config{
+			MaxCost:     int64(conf.InMemory.MaxCost),
+			NumCounters: int64(conf.InMemory.NumCounters),
+			BufferItems: int64(conf.InMemory.BufferItems),
+		}
+
+		// LoadOrStore를 사용하여 동시성 안전하게 생성
+		client, err := ristretto.NewCache(config)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create ristretto cache: %v", err)
+		}
+
+		actualClient, _ := ristrettoClients.LoadOrStore(conf.InMemory, client)
+		cacheStore := ristretto_store.NewRistretto(actualClient.(*ristretto.Cache))
+
+		// 생성된 store를 저장
+		cacheStores.Store(conf.InMemory, cacheStore)
+
+		cacheManager := cache.New[any](cacheStore)
+		marshal := marshaler.New(cacheManager)
+		return cacheManager, marshal, nil
+
+	default:
 		return nil, nil, fmt.Errorf("unknown cache strategy: %s", conf.Strategy)
 	}
-
-	mu.RLock()
-	defer mu.RUnlock()
-	cacheManager := cache.New[any](cacheStore)
-	marshal := marshaler.New(cacheManager)
-	return cacheManager, marshal, nil
 }
 
 func (conf *Config) Access(kong *pdk.PDK) {
