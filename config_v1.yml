@@ -34,9 +34,10 @@ services:
         strategy: redis
         redis:
           host: redis
+          port: 6379
+          db_number: 1
           pool_size: 10
           max_retries: 5
-          db_number: 1
           dial_timeout: 0
           read_timeout: 0
           write_timeout: 0
@@ -149,6 +150,27 @@ services:
         strategy: redis
         redis:
           host: redis
+          port: 6379
+          db_number: 1
+          pool_size: 10
+          max_retries: 5
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
+        redis_cluster:
+          addrs:
+            - "redis-cluster-1:6379"
+            - "redis-cluster-2:6379"
+            - "redis-cluster-3:6379"
+          pool_size: 10
+          max_retries: 5
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
         log:
           log_level: debug
           console_logging_enabled: true

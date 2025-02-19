@@ -2,6 +2,10 @@
 set -e
 set -x
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
 if ! (type ab > /dev/null); then
   brew install ab
 fi
@@ -10,18 +14,17 @@ if ! (type wait-for > /dev/null); then
   go install github.com/dnnrly/wait-for/cmd/wait-for@latest
 fi
 
-echo "Building..."
+echo "${GREEN}Building...${NC}"
 ./build.sh
 
 
-echo "Benchmarking..."
+echo "${GREEN}Benchmarking...${NC}"
 
 docker-compose stop || /bin/true
-docker-compose rm -f || /bin/true
 
-echo "Without a plugin..."
+echo "${GREEN}Without a plugin...${NC}"
 
-docker-compose up -d --build
+docker-compose up -d
 
 wait-for "http://localhost:8000/noplugins/api/users?page=1"
 echo "All services are up and running!"
@@ -31,11 +34,10 @@ ab -n 1000 -k -c 4 \
   "http://localhost:8000/noplugins/api/users?page=1"
 
 docker-compose stop || /bin/true
-docker-compose rm -f || /bin/true
 
 
-echo "With a in-memory caching plugin..."
-docker-compose up -d --build
+echo "${GREEN}With a in-memory caching plugin...${NC}"
+docker-compose up -d
 
 wait-for "http://localhost:8000/in-memory/api/users?page=2"
 echo "All services are up and running!"
@@ -45,11 +47,10 @@ ab -n 1000 -k -c 4 \
   "http://localhost:8000/in-memory/api/users?page=2"
 
 docker-compose stop || /bin/true
-docker-compose rm -f || /bin/true
 
 
-echo "With a Redis caching plugin..."
-docker-compose up -d --build
+echo "${GREEN}With a Redis caching plugin...${NC}"
+docker-compose up -d
 
 wait-for "http://localhost:8000/redis/api/users?page=2"
 echo "All services are up and running!"
@@ -59,4 +60,3 @@ ab -n 1000 -k -c 4 \
   "http://localhost:8000/redis/api/users?page=2"
 
 docker-compose stop || /bin/true
-docker-compose rm -f || /bin/true

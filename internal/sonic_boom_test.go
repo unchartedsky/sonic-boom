@@ -413,6 +413,7 @@ func configDefault() *Config {
 		CacheTTL:             0,
 		CacheControl:         false,
 		CacheableBodyMaxSize: 0,
+		CacheVersion:         "",
 		Strategy:             "redis",
 
 		InMemory: InMemoryConfig{
@@ -422,7 +423,7 @@ func configDefault() *Config {
 		},
 
 		Redis: RedisConfig{
-			Host:              "localhost",
+			// Host:              "localhost",
 			Port:              6379,
 			DBNumber:          0,
 			PoolSize:          10,
@@ -435,6 +436,20 @@ func configDefault() *Config {
 			PoolTimeout:       5,
 			IdleTimeout:       1,
 		},
+
+		RedisCluster: RedisClusterConfig{
+			// Addrs:             []string{"localhost:6379"},
+			PoolSize:          10,
+			MaxRetries:        3,
+			MinRetryBackoffMs: 8,
+			MaxRetryBackoffMs: 512,
+			DialTimeout:       5,
+			ReadTimeout:       3,
+			WriteTimeout:      3,
+			PoolTimeout:       5,
+			IdleTimeout:       1,
+		},
+
 		LogConf: LogConfig{
 			LogLevel:              "info",
 			ConsoleLoggingEnabled: true,

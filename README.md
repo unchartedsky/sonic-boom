@@ -58,7 +58,7 @@ config:
 - [x] `linux/arm64` 컨테이너 이미지 지원 ✅ 2025-02-17
 - [x] 바이너리 릴리즈 ✅ 2025-02-17
 - [x] in-memory 스토어 지원 ✅ 2025-02-17
-- [ ] Redis cluster 스토어 지원
+- [x] Redis cluster 스토어 지원 ✅ 2025-02-19
 - [x] OpenTelemetry 통합 ✅ 2025-02-19
 - [ ] Kubernetes 예제 추가
 

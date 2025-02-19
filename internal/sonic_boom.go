@@ -19,6 +19,7 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	lib_store "github.com/eko/gocache/lib/v4/store"
 	redis_store "github.com/eko/gocache/store/redis/v4"
+	rediscluster_store "github.com/eko/gocache/store/rediscluster/v4"
 
 	//lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/dgraph-io/ristretto"
@@ -53,20 +54,22 @@ type InMemoryConfig struct {
 	NumCounters int `json:"num_counters" validate:"gte=0" default:"1000000"`
 	BufferItems int `json:"buffer_items" validate:"gte=0" default:"64"`
 }
+
 type Config struct {
-	ResponseCodes        []int          `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
-	RequestMethods       []string       `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
-	ContentTypes         []string       `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
-	VaryHeaders          []string       `json:"vary_headers" validate:"required" default:"[]"`
-	Filters              []Filter       `json:"filters" validate:"required" default:"[]"`
-	CacheTTL             int            `json:"cache_ttl" validate:"gte=0" default:"0"`
-	CacheControl         bool           `json:"cache_control" validate:"" default:"false"`
-	CacheableBodyMaxSize int            `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
-	CacheVersion         string         `json:"cache_version" validate:"" default:""`
-	Strategy             string         `json:"strategy" validate:"required,oneof=redis in-memory" default:"redis"`
-	Redis                RedisConfig    `json:"redis" default:"{}"`
-	InMemory             InMemoryConfig `json:"in_memory" default:"{}"`
-	LogConf              LogConfig      `json:"log" validate:"" default:"{}"`
+	ResponseCodes        []int              `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
+	RequestMethods       []string           `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
+	ContentTypes         []string           `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
+	VaryHeaders          []string           `json:"vary_headers" validate:"required" default:"[]"`
+	Filters              []Filter           `json:"filters" validate:"required" default:"[]"`
+	CacheTTL             int                `json:"cache_ttl" validate:"gte=0" default:"0"`
+	CacheControl         bool               `json:"cache_control" validate:"" default:"false"`
+	CacheableBodyMaxSize int                `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
+	CacheVersion         string             `json:"cache_version" validate:"" default:""`
+	Strategy             string             `json:"strategy" validate:"required,oneof=redis redis-cluster in-memory" default:"redis"`
+	Redis                RedisConfig        `json:"redis" default:"{}"`
+	RedisCluster         RedisClusterConfig `json:"redis_cluster" default:"{}"`
+	InMemory             InMemoryConfig     `json:"in_memory" default:"{}"`
+	LogConf              LogConfig          `json:"log" validate:"" default:"{}"`
 
 	logger *Logger `validate:"-"`
 }
@@ -158,6 +161,8 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 		// Redis는 매번 새로운 인스턴스 생성
 		redisClient := redis.NewClient(&redis.Options{
 			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
+			Username:        conf.Redis.Username,
+			Password:        conf.Redis.Password,
 			DB:              conf.Redis.DBNumber,
 			PoolSize:        conf.Redis.PoolSize,
 			MaxRetries:      conf.Redis.MaxRetries,
@@ -170,6 +175,26 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 			ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
 		})
 		cacheStore := redis_store.NewRedis(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
+		cacheManager := cache.New[any](cacheStore)
+		marshal := marshaler.New(cacheManager)
+		return cacheManager, marshal, nil
+
+	case "redis-cluster":
+		redisClient := redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:           conf.RedisCluster.Addrs,
+			Username:        conf.RedisCluster.Username,
+			Password:        conf.RedisCluster.Password,
+			PoolSize:        conf.RedisCluster.PoolSize,
+			MaxRetries:      conf.RedisCluster.MaxRetries,
+			MinRetryBackoff: convertRedisTimeout(conf.RedisCluster.MinRetryBackoffMs, time.Millisecond),
+			MaxRetryBackoff: convertRedisTimeout(conf.RedisCluster.MaxRetryBackoffMs, time.Millisecond),
+			DialTimeout:     convertRedisTimeout(conf.RedisCluster.DialTimeout, time.Second),
+			ReadTimeout:     convertRedisTimeout(conf.RedisCluster.ReadTimeout, time.Second),
+			WriteTimeout:    convertRedisTimeout(conf.RedisCluster.WriteTimeout, time.Second),
+			PoolTimeout:     convertRedisTimeout(conf.RedisCluster.PoolTimeout, time.Second),
+			ConnMaxIdleTime: convertRedisTimeout(conf.RedisCluster.IdleTimeout, time.Second),
+		})
+		cacheStore := rediscluster_store.NewRedisCluster(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
 		cacheManager := cache.New[any](cacheStore)
 		marshal := marshaler.New(cacheManager)
 		return cacheManager, marshal, nil
@@ -228,21 +253,22 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	logger := conf.logger
 
+	method, err := kong.Request.GetMethod()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get request method")
+		return
+	}
+
+	uri, err := kong.Request.GetPath()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get request path")
+		return
+	}
+
 	var span trace.Span
+
 	if otelEnabled {
 		ctx := context.Background()
-		method, err := kong.Request.GetMethod()
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to get request method")
-			return
-		}
-
-		uri, err := kong.Request.GetPath()
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to get request path")
-			return
-		}
-
 		_, span = tracer.Start(ctx, "sonic-boom.Access",
 			trace.WithAttributes(
 				attribute.String("http.method", method),
@@ -570,11 +596,30 @@ func headerToDelete(header string) bool {
 
 func (conf *Config) checkConfig() error {
 	validate := validator.New()
-	err := validate.Struct(conf)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	// Redis 설정 validation을 위한 custom validation 추가
+	validate.RegisterStructValidation(func(sl validator.StructLevel) {
+		config := sl.Current().Interface().(Config)
+
+		// Redis strategy일 때 Redis 설정 검증
+		if config.Strategy == "redis" {
+			if config.Redis.Host == "" {
+				sl.ReportError(config.Redis.Host, "Host", "Redis.Host", "required", "")
+			}
+			if config.Redis.Port <= 0 || config.Redis.Port > 65536 {
+				sl.ReportError(config.Redis.Port, "Port", "Redis.Port", "range", "")
+			}
+		}
+
+		// Redis Cluster strategy일 때 RedisCluster 설정 검증
+		if config.Strategy == "redis-cluster" {
+			if len(config.RedisCluster.Addrs) == 0 {
+				sl.ReportError(config.RedisCluster.Addrs, "Addrs", "RedisCluster.Addrs", "required", "")
+			}
+		}
+	}, Config{})
+
+	return validate.Struct(conf)
 }
 
 func (conf *Config) signalCacheReq(kong *pdk.PDK, signal CacheSignal) error {
@@ -637,6 +682,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	logger := conf.logger
 
 	var span trace.Span
+
 	if otelEnabled {
 		// Get the parent span context
 		spanCtxRaw, err := GetPluginAny(kong, "span_context")
@@ -650,12 +696,13 @@ func (conf *Config) Response(kong *pdk.PDK) {
 			return
 		}
 
-		ctx := trace.ContextWithSpanContext(context.Background(), spanCtx)
-		ctx, span = tracer.Start(ctx, "sonic-boom.Response")
+		ctx := context.Background()
+		ctx = trace.ContextWithSpanContext(ctx, spanCtx)
+		_, span = tracer.Start(ctx, "sonic-boom.Response")
 		defer span.End()
 	}
 
-	status, err := kong.Response.GetStatus()
+	httpStatus, err := kong.Response.GetStatus()
 	if err != nil {
 		logger.Error().Err(err).Msg("Getting response status failed")
 		return
@@ -663,7 +710,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	if otelEnabled {
 		span.SetAttributes(
-			attribute.Int("http.status_code", status),
+			attribute.Int("http.status_code", httpStatus),
 		)
 	}
 
@@ -692,12 +739,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 
 	// ProxyCacheHandler:body_filter
-	httpStatus, err := kong.Response.GetStatus()
-	if err != nil {
-		logger.Error().Err(err).Msg("Getting response status failed")
-		return
-	}
-
 	headers, err := kong.Response.GetHeaders(1000)
 	if err != nil {
 		logger.Error().Err(err).Msg("Getting response headers failed")
