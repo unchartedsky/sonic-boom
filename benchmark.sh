@@ -10,24 +10,28 @@ if ! (type wait-for > /dev/null); then
   go install github.com/dnnrly/wait-for/cmd/wait-for@latest
 fi
 
+echo "Building..."
+./build.sh
+
+
 echo "Benchmarking..."
 
 docker-compose stop || /bin/true
 docker-compose rm -f || /bin/true
 
-# echo "Without a plugin..."
+echo "Without a plugin..."
 
-# docker-compose up -d --build
+docker-compose up -d --build
 
-# wait-for "http://localhost:8000/noplugins/api/users?page=1"
-# echo "All services are up and running!"
+wait-for "http://localhost:8000/noplugins/api/users?page=1"
+echo "All services are up and running!"
 
-# ab -n 1000 -k -c 4 \
-#   -A "username1:password1" \
-#   "http://localhost:8000/noplugins/api/users?page=1"
+ab -n 1000 -k -c 4 \
+  -A "username1:password1" \
+  "http://localhost:8000/noplugins/api/users?page=1"
 
-# docker-compose stop || /bin/true
-# docker-compose rm -f || /bin/true
+docker-compose stop || /bin/true
+docker-compose rm -f || /bin/true
 
 
 echo "With a in-memory caching plugin..."

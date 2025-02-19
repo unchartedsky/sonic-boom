@@ -9,6 +9,7 @@ services:
     # image: kong:3.9.0-ubuntu
     build: .
     environment:
+      # Kong Configuration
       - KONG_DATABASE=off
       - KONG_DECLARATIVE_CONFIG=/kong/config.yml
       - KONG_PLUGINS=bundled,sonic-boom
@@ -21,6 +22,21 @@ services:
       - KONG_NGINX_HTTP_GZIP_VARY=on
 #      - KONG_NGINX_HTTP_GZIP_TYPES="application/json application/json; utf-8"
       - KONG_NGINX_HTTP_GZIP_PROXIED="any"
+
+      # Pass OpenTelemetry environment variables to nginx
+      # See https://discuss.konghq.com/t/set-multiple-env-nginx-directives/7532/3
+      - KONG_NGINX_MAIN_ENV=OTEL_SDK_DISABLED;env OTEL_SERVICE_NAME;env OTEL_EXPORTER_OTLP_ENDPOINT;env OTEL_EXPORTER_OTLP_PROTOCOL;env OTEL_TRACES_SAMPLER;env OTEL_TRACES_SAMPLER_ARG;env OTEL_PROPAGATORS;env OTEL_RESOURCE_ATTRIBUTES;env OTEL_LOG_LEVEL
+
+      # OpenTelemetry Configuration
+      - OTEL_SDK_DISABLED=true
+      - OTEL_SERVICE_NAME=sonic-boom
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_SAMPLER=parentbased_always_on
+      - OTEL_TRACES_SAMPLER_ARG=1.0
+      - OTEL_PROPAGATORS=b3
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=sonic-boom
+      - OTEL_LOG_LEVEL=info
     ports:
       - '8000:8000'
     restart: on-failure

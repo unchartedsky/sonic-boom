@@ -28,6 +28,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/umisama/go-regexpcache"
 	"gopkg.in/go-playground/validator.v9"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -37,6 +41,9 @@ var (
 	// InMemory 설정값별로 캐시를 관리하기 위한 맵
 	ristrettoClients sync.Map // map[InMemoryConfig]*ristretto.Cache
 	cacheStores      sync.Map // map[InMemoryConfig]store.StoreInterface[any]
+
+	tracer      = otel.Tracer("sonic-boom")
+	otelEnabled = os.Getenv("OTEL_SDK_DISABLED") != "true"
 )
 
 // TODO cache control 은 나중에 구현하자
@@ -221,29 +228,49 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	logger := conf.logger
 
-	method, err := kong.Request.GetMethod()
-	if err == nil {
-		logger.Trace().Msgf("Request method: %s", method)
-	}
-	path, err := kong.Request.GetPath()
-	if err == nil {
-		logger.Trace().Msgf("Request path: %s", path)
+	var span trace.Span
+	if otelEnabled {
+		ctx := context.Background()
+		method, err := kong.Request.GetMethod()
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to get request method")
+			return
+		}
+
+		uri, err := kong.Request.GetPath()
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to get request path")
+			return
+		}
+
+		_, span = tracer.Start(ctx, "sonic-boom.Access",
+			trace.WithAttributes(
+				attribute.String("http.method", method),
+				attribute.String("http.url", uri),
+			),
+		)
+		defer span.End()
+
+		// Store span context in PDK context for later use in Response
+		if err := SetPluginEx(kong, "span_context", span.SpanContext()); err != nil {
+			logger.Error().Err(err).Msg("Failed to store span context")
+		}
 	}
 
 	if conf.isDebug() {
-		if err = conf.checkConfig(); err != nil {
+		if err := conf.checkConfig(); err != nil {
 			logger.Fatal().Err(err).Msg("Config check failed")
 			return
 		}
 
-		if err = kong.Response.SetHeader("X-sonic-boom-Plugin-Version", Version); err != nil {
+		if err := kong.Response.SetHeader("X-sonic-boom-Plugin-Version", Version); err != nil {
 			logger.Warn().Err(err).Msg("failed to set header")
 		}
 	}
 
 	cacheable, cacheTTL := conf.cacheableRequest(kong)
 	if !cacheable {
-		if err = kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 			return
 		}
@@ -268,13 +295,11 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	}
 
 	if conf.isDebug() {
-		if err = kong.Response.SetHeader("X-Cache-Key", cacheKeyID); err != nil {
+		if err := kong.Response.SetHeader("X-Cache-Key", cacheKeyID); err != nil {
 			logger.Debug().Err(err).Msg("Failed to set header")
 			//_ = log.Err("SetHeader failed: ", err.Error())
 		}
 	}
-
-	ctx := context.Background()
 
 	_, marshal, err := conf.newCacheManager(cacheTTL)
 	if err != nil {
@@ -282,7 +307,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
-	cached, err := marshal.Get(ctx, cacheKeyID, new(CacheValue))
+	cached, err := marshal.Get(context.Background(), cacheKeyID, new(CacheValue))
 	if cached == nil || err != nil || err == redis.Nil {
 		logger.Debug().Msg("Cache miss")
 
@@ -302,7 +327,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		if err = SetPlugin(kong, "reqBody", rawBody); err != nil {
+		if err := SetPlugin(kong, "reqBody", rawBody); err != nil {
 			logger.Error().Err(err).Msg("Failed to set reqBody in plugin context")
 			return
 		}
@@ -326,11 +351,11 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if cacheValue.Version != conf.CacheVersion {
 		logger.Warn().Msgf("Cache version mismatch, purging: %s != %s", cacheValue.Version, conf.CacheVersion)
-		if err = marshal.Delete(ctx, cacheKeyID); err != nil {
+		if err := marshal.Delete(context.Background(), cacheKeyID); err != nil {
 			logger.Error().Err(err).Msg("Purging cache failed")
 			return
 		}
-		if err = conf.signalCacheReqWithStatus(kong, cacheSignal, "Bypass"); err != nil {
+		if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Failed to signal cache request")
 			return
 		}
@@ -346,7 +371,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		secs := now.Unix()
 
 		if (secs - cacheValue.Timestamp) > int64(conf.CacheTTL) {
-			if err = conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
+			if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
 				return
 			}
@@ -366,12 +391,12 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	//}
 
 	if responseData != "" {
-		if err = kong.Ctx.SetShared("proxy_cache_hit", responseData); err != nil {
+		if err := kong.Ctx.SetShared("proxy_cache_hit", responseData); err != nil {
 			logger.Error().Err(err).Msg("Failed to set shared context")
 			return
 		}
 	}
-	if err = kong.Nginx.SetCtx("KONG_PROXIED", true); err != nil {
+	if err := kong.Nginx.SetCtx("KONG_PROXIED", true); err != nil {
 		logger.Error().Err(err).Msg("Failed to set nginx context `KONG_PROXIED`")
 		return
 	}
@@ -610,13 +635,36 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	conf.Init()
 
 	logger := conf.logger
-	method, err := kong.Request.GetMethod()
-	if err == nil {
-		logger.Trace().Msgf("Request method: %s", method)
+
+	var span trace.Span
+	if otelEnabled {
+		// Get the parent span context
+		spanCtxRaw, err := GetPluginAny(kong, "span_context")
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to get span context")
+			return
+		}
+		spanCtx, ok := spanCtxRaw.(trace.SpanContext)
+		if !ok {
+			logger.Error().Msg("Invalid span context type")
+			return
+		}
+
+		ctx := trace.ContextWithSpanContext(context.Background(), spanCtx)
+		ctx, span = tracer.Start(ctx, "sonic-boom.Response")
+		defer span.End()
 	}
-	path, err := kong.Request.GetPath()
-	if err == nil {
-		logger.Trace().Msgf("Request path: %s", path)
+
+	status, err := kong.Response.GetStatus()
+	if err != nil {
+		logger.Error().Err(err).Msg("Getting response status failed")
+		return
+	}
+
+	if otelEnabled {
+		span.SetAttributes(
+			attribute.Int("http.status_code", status),
+		)
 	}
 
 	logger.Debug().Msg("Response is called")
@@ -636,7 +684,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	// ProxyCacheHandler:header_filter
 	if !conf.cacheableResponse(kong) {
-		if err = kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
 		}
@@ -698,14 +746,12 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		//ReqBody: reqBody.([]byte),
 	}
 	validate := validator.New()
-	if err = validate.Struct(conf); err != nil {
+	if err := validate.Struct(conf); err != nil {
 		logger.Error().Err(err).Msg("Cache value validation failed")
 		//validationErrors := err.(validator.ValidationErrors)
 		return
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
-
-	ctx := context.Background()
 
 	_, marshal, err := conf.newCacheManager(int(cacheValue.TTL))
 	if err != nil {
@@ -714,7 +760,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 
 	cacheKeyID := cacheSignal.CacheKeyID
-	if err = marshal.Set(ctx, cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
+	if err := marshal.Set(context.Background(), cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
