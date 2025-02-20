@@ -250,6 +250,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	}()
 
 	conf.Init()
+	defer conf.Close()
 
 	logger := conf.logger
 
@@ -320,11 +321,9 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
-	if conf.isDebug() {
-		if err := kong.Response.SetHeader("X-Cache-Key", cacheKeyID); err != nil {
-			logger.Debug().Err(err).Msg("Failed to set header")
-			//_ = log.Err("SetHeader failed: ", err.Error())
-		}
+	if err := kong.Response.SetHeader("X-Cache-Key", cacheKeyID); err != nil {
+		logger.Debug().Err(err).Msg("Failed to set header")
+		//_ = log.Err("SetHeader failed: ", err.Error())
 	}
 
 	_, marshal, err := conf.newCacheManager(cacheTTL)
@@ -678,6 +677,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 
 func (conf *Config) Response(kong *pdk.PDK) {
 	conf.Init()
+	defer conf.Close()
 
 	logger := conf.logger
 

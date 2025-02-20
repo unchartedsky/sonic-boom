@@ -9,7 +9,7 @@ type CacheValue struct {
 	Status    int `validate:"required,gte=0"`
 	Headers   map[string][]string
 	Body      []byte ``
-	BodyLen   int    `validate:"required,gte=0"`
+	BodyLen   int    `validate:"gte=0"`
 	Timestamp int64  `validate:"required,gte=0"`
 	TTL       int64  `validate:"required,gte=0"`
 	Version   string `validate:"required"`

@@ -61,6 +61,11 @@ config:
 - [x] Redis cluster 스토어 지원 ✅ 2025-02-19
 - [x] OpenTelemetry 통합 ✅ 2025-02-19
 - [ ] Kubernetes 예제 추가
+- [ ] Kong proxycache 의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
+
+```yaml
+
+```
 
 ## 참고
 
