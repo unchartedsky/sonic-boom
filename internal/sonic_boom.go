@@ -48,13 +48,6 @@ var (
 )
 
 // TODO cache control 은 나중에 구현하자
-
-type InMemoryConfig struct {
-	MaxCost     int `json:"max_cost" validate:"gte=0" default:"1000000"`
-	NumCounters int `json:"num_counters" validate:"gte=0" default:"1000000"`
-	BufferItems int `json:"buffer_items" validate:"gte=0" default:"64"`
-}
-
 type Config struct {
 	ResponseCodes        []int              `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
 	RequestMethods       []string           `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
@@ -91,11 +84,6 @@ func (r *Rule) pathRule() bool {
 
 func (r *Rule) headerRule() bool {
 	return r.Header != ""
-}
-
-type BaseFilter struct {
-	Regexp   string `json:"regexp" validate:"required"`
-	CacheTTL int    `json:"cache_ttl" validate:"gte=0" default:"0"`
 }
 
 func New() interface{} {
@@ -159,6 +147,7 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 	switch conf.Strategy {
 	case "redis":
 		// Redis는 매번 새로운 인스턴스 생성
+		// go-redis 가 자체적으로 pooling 을 제공한다
 		redisClient := redis.NewClient(&redis.Options{
 			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
 			Username:        conf.Redis.Username,
@@ -623,11 +612,6 @@ func (conf *Config) checkConfig() error {
 
 func (conf *Config) signalCacheReq(kong *pdk.PDK, signal CacheSignal) error {
 	return conf.signalCacheReqWithStatus(kong, signal, "")
-}
-
-type CacheSignal struct {
-	CacheKeyID string `json:"cache_key_id" validate:"required"`
-	CacheTTL   int    `json:"cache_ttl" validate:"gte=0" default:"0"`
 }
 
 func (conf *Config) signalCacheReqWithStatus(kong *pdk.PDK, signal CacheSignal, cacheStatus string) error {

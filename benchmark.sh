@@ -24,7 +24,7 @@ docker-compose stop || /bin/true
 
 echo "${GREEN}Without a plugin...${NC}"
 
-docker-compose up -d
+docker-compose up kong -d
 
 wait-for "http://localhost:8000/noplugins/api/users?page=1"
 echo "All services are up and running!"
@@ -37,7 +37,7 @@ docker-compose stop || /bin/true
 
 
 echo "${GREEN}With a in-memory caching plugin...${NC}"
-docker-compose up -d
+docker-compose up kong -d
 
 wait-for "http://localhost:8000/in-memory/api/users?page=2"
 echo "All services are up and running!"

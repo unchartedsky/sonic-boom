@@ -14,6 +14,7 @@ require (
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/redis/v4 v4.2.2
+	github.com/eko/gocache/store/rediscluster/v4 v4.2.1
 	github.com/eko/gocache/store/ristretto/v4 v4.2.2
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -39,7 +40,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/eko/gocache/store/rediscluster/v4 v4.2.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
