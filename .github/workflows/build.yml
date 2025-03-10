@@ -122,7 +122,7 @@ jobs:
   container:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
     strategy:
       fail-fast: false
       matrix:
@@ -215,7 +215,7 @@ jobs:
         platforms: linux/amd64,linux/arm64
         tags: ${{ steps.prep.outputs.tags }}
         pull: true
-        push: ${{ github.event_name != 'pull_request' }}
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
