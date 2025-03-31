@@ -1,7 +1,6 @@
 module github.com/unchartedsky/sonic-boom
 
 go 1.23.0
-
 replace github.com/Kong/go-pdk v0.8.0 => github.com/unchartedsky/go-pdk v0.0.0-20220905074705-c35179348e5c
 
 //replace github.com/Kong/go-pdk v0.8.0 => /Users/tywin/Workspace/go-pdk
@@ -14,7 +13,7 @@ require (
 	github.com/eko/gocache/store/redis/v4 v4.2.2
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.1
 	github.com/eko/gocache/store/ristretto/v4 v4.2.2
-	github.com/go-playground/validator/v10 v10.25.0
+	github.com/go-playground/validator/v10 v10.26.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/pkg/errors v0.9.1
 	github.com/redis/go-redis/v9 v9.7.3
