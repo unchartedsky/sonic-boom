@@ -201,7 +201,6 @@ func TestCacheKey_String(t *testing.T) {
 			}
 			assert.Equalf(t, tt.want, c.String(), "String()")
 			assert.Equalf(t, tt.want, fmt.Sprintf("%v", c), "String()")
-			assert.Equalf(t, tt.want, fmt.Sprintf("%s", c), "String()") //nolint:gosimple
 		})
 	}
 }
