@@ -1,7 +1,6 @@
 module github.com/unchartedsky/sonic-boom
 
 go 1.23.0
-
 replace github.com/Kong/go-pdk v0.8.0 => github.com/unchartedsky/go-pdk v0.0.0-20220905074705-c35179348e5c
 
 //replace github.com/Kong/go-pdk v0.8.0 => /Users/tywin/Workspace/go-pdk
@@ -26,7 +25,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.35.0
 	go.opentelemetry.io/otel/sdk v1.35.0
 	go.opentelemetry.io/otel/trace v1.35.0
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.6
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
