@@ -239,7 +239,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	}()
 
 	conf.Init()
-	defer conf.Close()
+	defer conf.Close() //nolint directives: gosimple
 
 	logger := conf.logger
 
@@ -661,7 +661,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 
 func (conf *Config) Response(kong *pdk.PDK) {
 	conf.Init()
-	defer conf.Close()
+defer conf.Close() //nolint directives: gosimple
 
 	logger := conf.logger
 
