@@ -14,7 +14,7 @@ require (
 	github.com/eko/gocache/store/redis/v4 v4.2.2
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.1
 	github.com/eko/gocache/store/ristretto/v4 v4.2.2
-	github.com/go-playground/validator/v10 v10.26.0
+	github.com/go-playground/validator/v10 v10.27.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/pkg/errors v0.9.1
 	github.com/redis/go-redis/v9 v9.10.0
