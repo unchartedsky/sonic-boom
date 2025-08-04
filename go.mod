@@ -7,7 +7,7 @@ replace github.com/Kong/go-pdk v0.8.0 => github.com/unchartedsky/go-pdk v0.0.0-2
 //replace github.com/Kong/go-pdk v0.8.0 => /Users/tywin/Workspace/go-pdk
 
 require (
-	github.com/Kong/go-pdk v0.11.1
+	github.com/Kong/go-pdk v0.11.2
 	github.com/creasty/defaults v1.8.0
 	github.com/dgraph-io/ristretto v0.2.0
 	github.com/eko/gocache/lib/v4 v4.2.0
