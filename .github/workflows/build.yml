@@ -60,7 +60,7 @@ jobs:
 
           whoami
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
           persist-credentials: false
@@ -127,7 +127,7 @@ jobs:
         image-name:
           - "ghcr.io/unchartedsky/sonic-boom"
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
         persist-credentials: false
@@ -223,7 +223,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download artifacts
       uses: actions/download-artifact@v5
