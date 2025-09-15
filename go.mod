@@ -1,6 +1,6 @@
 module github.com/unchartedsky/sonic-boom
 
-go 1.23.0
+go 1.25
 
 replace github.com/Kong/go-pdk v0.8.0 => github.com/unchartedsky/go-pdk v0.0.0-20220905074705-c35179348e5c
 
