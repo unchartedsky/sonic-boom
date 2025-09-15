@@ -1,6 +1,6 @@
 module github.com/unchartedsky/sonic-boom
 
-go 1.23.0
+go 1.25
 
 replace github.com/Kong/go-pdk v0.8.0 => github.com/unchartedsky/go-pdk v0.0.0-20220905074705-c35179348e5c
 
@@ -10,7 +10,7 @@ require (
 	github.com/Kong/go-pdk v0.11.2
 	github.com/creasty/defaults v1.8.0
 	github.com/dgraph-io/ristretto v0.2.0
-	github.com/eko/gocache/lib/v4 v4.2.0
+	github.com/eko/gocache/lib/v4 v4.2.1
 	github.com/eko/gocache/store/redis/v4 v4.2.2
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.1
 	github.com/eko/gocache/store/ristretto/v4 v4.2.2
