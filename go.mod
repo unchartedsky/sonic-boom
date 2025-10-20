@@ -11,7 +11,7 @@ require (
 	github.com/creasty/defaults v1.8.0
 	github.com/dgraph-io/ristretto v0.2.0
 	github.com/eko/gocache/lib/v4 v4.2.2
-	github.com/eko/gocache/store/redis/v4 v4.2.4
+	github.com/eko/gocache/store/redis/v4 v4.2.5
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.1
 	github.com/eko/gocache/store/ristretto/v4 v4.2.2
 	github.com/go-playground/validator/v10 v10.28.0
@@ -62,7 +62,6 @@ require (
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
-	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
 	golang.org/x/net v0.43.0 // indirect
