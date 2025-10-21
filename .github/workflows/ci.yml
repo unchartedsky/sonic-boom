@@ -45,9 +45,27 @@ jobs:
       - name: Start Redis Cluster with Docker Compose
         run: |
           docker-compose up -d redis-cluster
+          
+          # Wait for ports to be accessible from host
+          echo "Waiting for Redis Cluster ports to be accessible..."
+          for port in 7000 7001 7002; do
+            for i in {1..60}; do
+              if (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1; then
+                echo "✓ Port $port accessible"
+                break
+              fi
+              sleep 1
+            done
+          done
+          
+          # Install redis-cli to check cluster state from host
+          sudo apt-get update -qq
+          sudo apt-get install -y redis-tools
+          
+          # Wait for cluster to be ready
           echo "Waiting for Redis Cluster to be ready..."
           for i in {1..120}; do
-            if docker-compose exec -T redis-cluster redis-cli -p 7000 cluster info 2>/dev/null | grep -q "cluster_state:ok"; then
+            if redis-cli -h 127.0.0.1 -p 7000 cluster info 2>/dev/null | grep -q "cluster_state:ok"; then
               echo "✓ Redis Cluster ready"
               break
             fi
@@ -55,15 +73,17 @@ jobs:
             sleep 2
           done
           
-          # Verify all cluster ports
+          # Final verification from host
           for port in 7000 7001 7002; do
-            if ! docker-compose exec -T redis-cluster redis-cli -p $port ping >/dev/null 2>&1; then
-              echo "✗ Redis Cluster port $port not accessible"
+            if ! redis-cli -h 127.0.0.1 -p $port ping >/dev/null 2>&1; then
+              echo "✗ Redis Cluster port $port not responding to redis-cli"
               docker-compose logs redis-cluster
               exit 1
             fi
-            echo "✓ Redis Cluster port $port accessible"
+            echo "✓ Redis Cluster port $port responding"
           done
+          
+          echo "All Redis Cluster nodes ready!"
 
       - name: Run tests (-race)
         run: |
