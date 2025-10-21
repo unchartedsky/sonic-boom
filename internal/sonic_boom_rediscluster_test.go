@@ -11,7 +11,7 @@ import (
 func newRedisClusterConfigForTest() *Config {
 	cfg := configDefault()
 	cfg.Strategy = "redis-cluster"
-	cfg.RedisCluster.Addrs = []string{"localhost:7000", "localhost:7001", "localhost:7002"}
+	cfg.RedisCluster.Addrs = []string{"127.0.0.1:7000", "127.0.0.1:7001", "127.0.0.1:7002"}
 	cfg.RedisCluster.Password = ""
 	cfg.RedisCluster.MaxRetries = 3
 	cfg.RedisCluster.DialTimeout = 5

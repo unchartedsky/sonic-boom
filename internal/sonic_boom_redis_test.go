@@ -11,7 +11,7 @@ import (
 func newRedisConfigForTest() *Config {
 	cfg := configDefault()
 	cfg.Strategy = "redis"
-	cfg.Redis.Host = "localhost"
+	cfg.Redis.Host = "127.0.0.1"
 	cfg.Redis.Port = 6379
 	cfg.Redis.Password = ""
 	cfg.Redis.DBNumber = 0

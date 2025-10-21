@@ -32,6 +32,14 @@ jobs:
         run: |
           go version
 
+      - name: Start services (Redis & Redis Cluster)
+        run: |
+          docker-compose up -d redis redis-cluster
+          # Wait for Redis
+          for i in {1..30}; do (echo > /dev/tcp/127.0.0.1/6379) >/dev/null 2>&1 && break || sleep 1; done
+          # Wait for Redis Cluster ports
+          for port in 7000 7001 7002; do for i in {1..60}; do (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1 && break || sleep 1; done; done
+
       - name: Run tests (-race)
         run: |
           go test ./... -race -count=1
@@ -40,6 +48,11 @@ jobs:
         run: |
           go test ./... -coverprofile=coverage.out -count=1
           go tool cover -func=coverage.out | tail -n 1
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker-compose down
 
   smoke-test:
     runs-on: ubuntu-latest
