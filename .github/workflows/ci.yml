@@ -9,6 +9,32 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis-cluster:
+        image: grokzen/redis-cluster:6.2.8
+        env:
+          IP: 0.0.0.0
+          INITIAL_PORT: 7000
+          MASTERS: 3
+          SLAVES_PER_MASTER: 0
+        ports:
+          - 7000:7000
+          - 7001:7001
+          - 7002:7002
+        options: >-
+          --health-cmd "bash -lc 'redis-cli -p 7000 cluster info | grep -q cluster_state:ok'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,13 +58,10 @@ jobs:
         run: |
           go version
 
-      - name: Start services (Redis & Redis Cluster)
+      - name: Wait for services
         run: |
-          docker-compose up -d redis redis-cluster
-          # Wait for Redis
-          for i in {1..30}; do (echo > /dev/tcp/127.0.0.1/6379) >/dev/null 2>&1 && break || sleep 1; done
-          # Wait for Redis Cluster ports
-          for port in 7000 7001 7002; do for i in {1..60}; do (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1 && break || sleep 1; done; done
+          for i in {1..60}; do (echo > /dev/tcp/127.0.0.1/6379) >/dev/null 2>&1 && echo "redis ok" && break || sleep 1; done
+          for port in 7000 7001 7002; do for i in {1..120}; do (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1 && echo "cluster port $port ok" && break || sleep 1; done; done
 
       - name: Run tests (-race)
         run: |
@@ -48,11 +71,6 @@ jobs:
         run: |
           go test ./... -coverprofile=coverage.out -count=1
           go tool cover -func=coverage.out | tail -n 1
-
-      - name: Stop services
-        if: always()
-        run: |
-          docker-compose down
 
   smoke-test:
     runs-on: ubuntu-latest
