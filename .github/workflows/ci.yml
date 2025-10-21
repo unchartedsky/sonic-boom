@@ -11,30 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7
+        image: redis
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping || exit 1"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-      redis-cluster:
-        image: grokzen/redis-cluster:6.2.8
-        env:
-          IP: 0.0.0.0
-          INITIAL_PORT: 7000
-          MASTERS: 3
-          SLAVES_PER_MASTER: 0
-        ports:
-          - 7000:7000
-          - 7001:7001
-          - 7002:7002
-        options: >-
-          --health-cmd "bash -lc 'redis-cli -p 7000 cluster info | grep -q cluster_state:ok'"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 60
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,37 +42,28 @@ jobs:
         run: |
           go version
 
-      - name: Wait for services
+      - name: Start Redis Cluster with Docker Compose
         run: |
-          echo "Waiting for Redis..."
-          for i in {1..60}; do 
-            if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then 
-              echo "✓ Redis ready"
-              break
-            fi
-            sleep 1
-          done
-          
-          echo "Waiting for Redis Cluster..."
-          for i in {1..180}; do
-            if redis-cli -h 127.0.0.1 -p 7000 cluster info 2>/dev/null | grep -q "cluster_state:ok"; then
+          docker-compose up -d redis-cluster
+          echo "Waiting for Redis Cluster to be ready..."
+          for i in {1..120}; do
+            if docker-compose exec -T redis-cluster redis-cli -p 7000 cluster info 2>/dev/null | grep -q "cluster_state:ok"; then
               echo "✓ Redis Cluster ready"
               break
             fi
-            echo "  Attempt $i/180: Cluster not ready yet..."
+            echo "  Attempt $i/120: Cluster not ready yet..."
             sleep 2
           done
           
-          # Verify all cluster ports are accessible
+          # Verify all cluster ports
           for port in 7000 7001 7002; do
-            if ! redis-cli -h 127.0.0.1 -p $port ping >/dev/null 2>&1; then
+            if ! docker-compose exec -T redis-cluster redis-cli -p $port ping >/dev/null 2>&1; then
               echo "✗ Redis Cluster port $port not accessible"
+              docker-compose logs redis-cluster
               exit 1
             fi
             echo "✓ Redis Cluster port $port accessible"
           done
-          
-          echo "All services ready!"
 
       - name: Run tests (-race)
         run: |
@@ -98,6 +73,11 @@ jobs:
         run: |
           go test ./... -coverprofile=coverage.out -count=1
           go tool cover -func=coverage.out | tail -n 1
+
+      - name: Stop Redis Cluster
+        if: always()
+        run: |
+          docker-compose down
 
   smoke-test:
     runs-on: ubuntu-latest
