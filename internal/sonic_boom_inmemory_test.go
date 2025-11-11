@@ -37,23 +37,23 @@ func Test_InMemory_PutGet_RoundTrip(t *testing.T) {
 	cm, _, err := cfg.newCacheManager(5)
 	require.NoError(t, err)
 
-    key := "roundtrip-key"
-    val := []byte("hello")
-    require.NoError(t, cm.Set(context.Background(), key, val))
-    // ristretto는 비동기 쓰기이므로 짧은 리트라이 루프를 둔다
-    var gotAny any
-    var getErr error
-    for i := 0; i < 10; i++ {
-        gotAny, getErr = cm.Get(context.Background(), key)
-        if getErr == nil {
-            break
-        }
-        time.Sleep(20 * time.Millisecond)
-    }
-    require.NoError(t, getErr)
-    got, ok := gotAny.([]byte)
-    require.True(t, ok)
-    require.Equal(t, val, got)
+	key := "roundtrip-key"
+	val := []byte("hello")
+	require.NoError(t, cm.Set(context.Background(), key, val))
+	// ristretto는 비동기 쓰기이므로 짧은 리트라이 루프를 둔다
+	var gotAny any
+	var getErr error
+	for i := 0; i < 10; i++ {
+		gotAny, getErr = cm.Get(context.Background(), key)
+		if getErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.NoError(t, getErr)
+	got, ok := gotAny.([]byte)
+	require.True(t, ok)
+	require.Equal(t, val, got)
 }
 
 func Test_InMemory_TTL_Expires(t *testing.T) {
@@ -63,14 +63,14 @@ func Test_InMemory_TTL_Expires(t *testing.T) {
 
 	key := "ttl-key"
 	val := []byte("x")
-    require.NoError(t, cm.Set(context.Background(), key, val))
-    // 쓰기 확정 대기 후 TTL 만료까지 대기
-    time.Sleep(200 * time.Millisecond)
-    time.Sleep(1500 * time.Millisecond)
+	require.NoError(t, cm.Set(context.Background(), key, val))
+	// 쓰기 확정 대기 후 TTL 만료까지 대기
+	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
-    // 만료 확인은 리트라이 불필요(이미 TTL 경과)
-    _, err = cm.Get(context.Background(), key)
-    require.Error(t, err)
+	// 만료 확인은 리트라이 불필요(이미 TTL 경과)
+	_, err = cm.Get(context.Background(), key)
+	require.Error(t, err)
 }
 
 func Test_InMemory_Concurrency_NoRace(t *testing.T) {
@@ -116,7 +116,40 @@ func Test_InMemory_Eviction_MinimalGuarantee(t *testing.T) {
 }
 
 func Test_InMemory_Marshal_Unmarshal_CacheValue(t *testing.T) {
-    t.Skip("Marshaler round-trip는 통합 경로에서 커버 예정 (flake 방지)")
+	cfg := newInMemoryConfigForTest()
+	_, m, err := cfg.newCacheManager(5)
+	require.NoError(t, err)
+
+	cv := CacheValue{
+		Status:    200,
+		Headers:   map[string][]string{"Content-Type": {"text/plain"}},
+		Body:      []byte("hello"),
+		BodyLen:   5,
+		Timestamp: time.Now().Unix(),
+		TTL:       5,
+		Version:   "1.0",
+		ReqBody:   []byte{},
+	}
+
+	key := "marshal-key"
+	require.NoError(t, m.Set(context.Background(), key, cv))
+
+	// 비동기 쓰기 보정을 위한 리트라이 로직
+	var out CacheValue
+	var found any
+	for i := 0; i < 20; i++ { // 더 많은 리트라이 시도
+		found, err = m.Get(context.Background(), key, &out)
+		if err == nil && found != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond) // 더 긴 대기 시간
+	}
+
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Equal(t, cv.Status, out.Status)
+	require.Equal(t, cv.BodyLen, out.BodyLen)
+	require.Equal(t, cv.Version, out.Version)
 }
 
 func Test_InMemory_LoadOrStore_ReusesInstance(t *testing.T) {
@@ -127,16 +160,16 @@ func Test_InMemory_LoadOrStore_ReusesInstance(t *testing.T) {
 	cm2, _, err := cfg.newCacheManager(5)
 	require.NoError(t, err)
 
-    // 캐시 히트를 통해 간접 확인
-    key := "reuse"
-    require.NoError(t, cm1.Set(context.Background(), key, []byte("v")))
-    // 비동기 쓰기 보정
-    time.Sleep(100 * time.Millisecond)
-    gotAny, err := cm2.Get(context.Background(), key)
-    require.NoError(t, err)
-    got, ok := gotAny.([]byte)
-    require.True(t, ok)
-    require.Equal(t, []byte("v"), got)
+	// 캐시 히트를 통해 간접 확인
+	key := "reuse"
+	require.NoError(t, cm1.Set(context.Background(), key, []byte("v")))
+	// 비동기 쓰기 보정
+	time.Sleep(100 * time.Millisecond)
+	gotAny, err := cm2.Get(context.Background(), key)
+	require.NoError(t, err)
+	got, ok := gotAny.([]byte)
+	require.True(t, ok)
+	require.Equal(t, []byte("v"), got)
 }
 
 func Test_InMemory_DifferentConfig_IsolatedInstances(t *testing.T) {
@@ -151,23 +184,23 @@ func Test_InMemory_DifferentConfig_IsolatedInstances(t *testing.T) {
 	require.NoError(t, err)
 
 	// 서로 간섭하지 않는지 확인(키 충돌 방지용 접두)
-    require.NoError(t, cm1.Set(context.Background(), "isolate-1", []byte("a")))
-    require.NoError(t, cm2.Set(context.Background(), "isolate-2", []byte("b")))
+	require.NoError(t, cm1.Set(context.Background(), "isolate-1", []byte("a")))
+	require.NoError(t, cm2.Set(context.Background(), "isolate-2", []byte("b")))
 
-    // 비동기 쓰기 보정
-    time.Sleep(100 * time.Millisecond)
+	// 비동기 쓰기 보정
+	time.Sleep(100 * time.Millisecond)
 
-    v1Any, err := cm1.Get(context.Background(), "isolate-1")
-    require.NoError(t, err)
-    v1, ok := v1Any.([]byte)
-    require.True(t, ok)
-    require.Equal(t, []byte("a"), v1)
+	v1Any, err := cm1.Get(context.Background(), "isolate-1")
+	require.NoError(t, err)
+	v1, ok := v1Any.([]byte)
+	require.True(t, ok)
+	require.Equal(t, []byte("a"), v1)
 
-    v2Any, err := cm2.Get(context.Background(), "isolate-2")
-    require.NoError(t, err)
-    v2, ok := v2Any.([]byte)
-    require.True(t, ok)
-    require.Equal(t, []byte("b"), v2)
+	v2Any, err := cm2.Get(context.Background(), "isolate-2")
+	require.NoError(t, err)
+	v2, ok := v2Any.([]byte)
+	require.True(t, ok)
+	require.Equal(t, []byte("b"), v2)
 }
 
 func Test_Unknown_Strategy_Error(t *testing.T) {

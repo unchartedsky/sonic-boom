@@ -112,7 +112,7 @@ jobs:
           GOARCH: ${{ matrix.go-arch }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sonic-boom-${{ matrix.platform }}
           path: bin/${{ matrix.go-os }}-${{ matrix.go-arch }}/sonic-boom
