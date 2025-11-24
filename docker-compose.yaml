@@ -4,6 +4,23 @@ services:
     ports:
       - '6379:6379'
 
+  redis-cluster:
+    image: grokzen/redis-cluster:6.2.8
+    environment:
+      - IP=0.0.0.0
+      - INITIAL_PORT=7000
+      - MASTERS=3
+      - SLAVES_PER_MASTER=0
+    ports:
+      - '7000:7000'
+      - '7001:7001'
+      - '7002:7002'
+    healthcheck:
+      test: ["CMD", "bash", "-c", "redis-cli -p 7000 cluster info | grep -q cluster_state:ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   kong:
     # image: ghcr.io/unchartedsky/sonic-boom:sha-01f9cc1
     # image: kong:3.9.0-ubuntu
