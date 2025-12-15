@@ -4,6 +4,7 @@ set -x
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 if ! (type ab > /dev/null); then
@@ -17,8 +18,20 @@ fi
 echo "${GREEN}Building...${NC}"
 ./build.sh
 
+echo "${BLUE}Running Go Benchmarks...${NC}"
+echo "In-Memory Cache Benchmarks:"
+go test -bench=Benchmark_InMemory -benchmem ./internal
 
-echo "${GREEN}Benchmarking...${NC}"
+echo ""
+echo "Marshaler Benchmarks:"
+go test -bench=Benchmark_InMemory_Marshal -benchmem ./internal
+
+echo ""
+echo "Concurrency Benchmarks:"
+go test -bench=Benchmark_InMemory_Concurrent -benchmem ./internal
+
+echo ""
+echo "${GREEN}HTTP Load Testing...${NC}"
 
 docker-compose stop || /bin/true
 
