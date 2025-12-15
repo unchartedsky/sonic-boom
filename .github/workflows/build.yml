@@ -81,7 +81,7 @@ jobs:
 
       # https://medium.com/ai2-blog/python-caching-in-github-actions-e9452698e98d
       # https://stackoverflow.com/questions/68896173/issue-caching-python-dependencies-in-github-actions
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: cache
         with:
           path: |
