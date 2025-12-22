@@ -210,11 +210,11 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 			return nil, nil, fmt.Errorf("failed to create ristretto cache: %v", err)
 		}
 
-        actualClient, _ := ristrettoClients.LoadOrStore(conf.InMemory, client)
-        cacheStore := ristretto_store.NewRistretto(
-            actualClient.(*ristretto.Cache),
-            lib_store.WithExpiration(time.Duration(ttl)*time.Second),
-        )
+		actualClient, _ := ristrettoClients.LoadOrStore(conf.InMemory, client)
+		cacheStore := ristretto_store.NewRistretto(
+			actualClient.(*ristretto.Cache),
+			lib_store.WithExpiration(time.Duration(ttl)*time.Second),
+		)
 
 		// 생성된 store를 저장
 		cacheStores.Store(conf.InMemory, cacheStore)
@@ -664,7 +664,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 
 func (conf *Config) Response(kong *pdk.PDK) {
 	conf.Init()
-defer conf.Close() //nolint directives: gosimple
+	defer conf.Close() //nolint directives: gosimple
 
 	logger := conf.logger
 
