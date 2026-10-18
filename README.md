@@ -110,7 +110,7 @@ go test ./internal -run 'Test_InMemory|TestConfig|Test_'
 ## 개발
 
 ### 필수 요구사항
-- Go 1.25+
+- Go 1.27+
 - Docker & Docker Compose
 
 ### 개발 워크플로우

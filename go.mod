@@ -1,6 +1,6 @@
 module github.com/unchartedsky/sonic-boom
 
-go 1.25
+go 1.27
 
 require (
 	github.com/Kong/go-pdk v0.11.2

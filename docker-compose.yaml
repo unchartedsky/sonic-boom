@@ -130,7 +130,7 @@ services:
   # 맥/리눅스/CI가 같은 방식으로 redis·cluster에 접근하게 한다.
   # profiles로 평소 up -d에는 뜨지 않는다.
   go-test:
-    image: golang:1.25
+    image: golang:1.27.2
     profiles: ["test"]
     working_dir: /app
     volumes:
