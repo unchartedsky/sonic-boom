@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -53,6 +54,10 @@ func newRollingFileWriter(config *LogConfig) io.Writer {
 //
 // The output log file will be located at /var/log/service-xyz/service-xyz.log and
 // will be rolled according to configuration set.
+// zerolog.CallerMarshalFunc는 전역 변수라 매 호출마다 쓰면 race가 난다.
+// NewLogger는 Init()를 통해 요청마다 불릴 수 있어 한 번만 설정한다.
+var callerMarshalFuncOnce sync.Once
+
 func NewLogger(config *LogConfig) *Logger {
 	var writers []io.Writer
 
@@ -65,17 +70,19 @@ func NewLogger(config *LogConfig) *Logger {
 	mw := io.MultiWriter(writers...)
 
 	// Add file and line number to log
-	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
-		short := file
-		for i := len(file) - 1; i > 0; i-- {
-			if file[i] == '/' {
-				short = file[i+1:]
-				break
+	callerMarshalFuncOnce.Do(func() {
+		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+			short := file
+			for i := len(file) - 1; i > 0; i-- {
+				if file[i] == '/' {
+					short = file[i+1:]
+					break
+				}
 			}
+			file = short
+			return file + ":" + strconv.Itoa(line)
 		}
-		file = short
-		return file + ":" + strconv.Itoa(line)
-	}
+	})
 	logger := zerolog.New(mw).With().Caller().Timestamp().Logger()
 
 	logLevel, err := zerolog.ParseLevel(config.LogLevel)
