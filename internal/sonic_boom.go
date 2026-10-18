@@ -113,12 +113,8 @@ func (conf *Config) Init() {
 	// logger는 매 Config 인스턴스마다 개별적으로 초기화
 	conf.logger = NewLogger(&conf.LogConf)
 
-	// 나머지 설정들 초기화
-	for _, filter := range conf.Filters {
-		if defaults.CanUpdate(filter.CacheTTL) {
-			filter.CacheTTL = conf.CacheTTL
-		}
-	}
+	// 필터 TTL 상속은 요청마다 요청 시점에 filtered()에서 해석한다(go-pdk #78 동시성 모델에서
+	// 설정 슬라이스를 변이하면 데이터 경합이 된다).
 
 	if conf.CacheVersion == "" {
 		conf.CacheVersion = conf.cacheVersion()
@@ -386,7 +382,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		now := time.Now()
 		secs := now.Unix()
 
-		if (secs - cacheValue.Timestamp) > int64(conf.CacheTTL) {
+		if (secs - cacheValue.Timestamp) > int64(cacheTTL) {
 			if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
 				return
@@ -467,7 +463,12 @@ func (conf *Config) filtered(kong *pdk.PDK) (bool, int) {
 
 	for _, filter := range filters {
 		if conf.rulesFiltered(kong, filter.Rules) {
-			return true, filter.CacheTTL
+			// 미설정(0) 필터 TTL은 전역 cache_ttl을 상속한다. 명시적 0도 상속을 의미한다(KTD1).
+			ttl := filter.CacheTTL
+			if ttl == 0 {
+				ttl = conf.CacheTTL
+			}
+			return true, ttl
 		}
 	}
 
@@ -768,7 +769,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		Body:      rawBody,
 		BodyLen:   len(rawBody),
 		Timestamp: secs,
-		TTL:       int64(conf.CacheTTL),
+		TTL:       int64(cacheSignal.CacheTTL),
 		Version:   conf.CacheVersion,
 		//ReqBody: reqBody.([]byte),
 	}

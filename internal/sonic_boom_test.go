@@ -643,6 +643,33 @@ func TestConfig_filtered(t *testing.T) {
 		want1  int
 	}{
 		{
+			name: "unset filter TTL inherits global cache_ttl",
+			fields: fields{
+				logger: defaultLogger(),
+				Filters: []Filter{
+					{
+						Name: "Test",
+						Rules: []Rule{
+							{
+								Regexp: ".*ref.*",
+							},
+						},
+					},
+				},
+				CacheTTL: 15,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_path_with_query", Ret: bridge.WrapString("/login/goodluck?ref=wayback")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  true,
+			want1: 15,
+		},
+		{
 			name: "test with empty rules",
 			fields: fields{
 				logger: defaultLogger(),
