@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/Kong/go-pdk v0.11.2
-	github.com/creasty/defaults v1.8.0
+	github.com/creasty/defaults v1.11.0
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/eko/gocache/lib/v4 v4.4.0
 	github.com/eko/gocache/store/redis/v4 v4.2.12
