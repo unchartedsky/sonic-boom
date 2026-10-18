@@ -429,23 +429,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	}
 
 	// we have cache data yo!
-	// expose response data for logging plugins
-	// 그래서 어디에 쓴다는 건지... https://github.com/search?q=org%3AKong+proxy_cache_hit&type=code
-	responseData := ""
-	//responseData = {
-	//	res = res,
-	//	req = {
-	//		body = res.req_body,
-	//	},
-	//	server_addr = ngx.var.server_addr,
-	//}
-
-	if responseData != "" {
-		if err := kong.Ctx.SetShared("proxy_cache_hit", responseData); err != nil {
-			logger.Error().Err(err).Msg("Failed to set shared context")
-			return
-		}
-	}
 	if err := kong.Nginx.SetCtx("KONG_PROXIED", true); err != nil {
 		logger.Error().Err(err).Msg("Failed to set nginx context `KONG_PROXIED`")
 		return
