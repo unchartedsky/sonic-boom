@@ -255,9 +255,10 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 	}
 }
 
-func (conf *Config) Access(kong *pdk.PDK) {
-	// From https://github.com/lampnick/kong-rate-limiting-golang/blob/master/custom-rate-limiting.go
-	defer func() {
+// panicGuard는 페이즈 핸들러 공통 패닉 방어 클로저를 반환한다 — go-pdk 서버에 recover가
+// 없어 핸들러 패닉이 프로세스 사망으로 이어진다. recover()는 지연 함수 본문에서 직접 호출돼야 한다.
+func panicGuard(kong *pdk.PDK) func() {
+	return func() {
 		if err := recover(); err != nil {
 			log.Printf("kong plugin panic at: %+v, err: %+v", time.Now(), err)
 			if kong == nil {
@@ -266,8 +267,10 @@ func (conf *Config) Access(kong *pdk.PDK) {
 				_ = kong.Log.Err(fmt.Sprint(err))
 			}
 		}
-	}()
+	}
+}
 
+func (conf *Config) Access(kong *pdk.PDK) {
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
 
@@ -303,8 +306,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		}
 	}
 
-	// 설정 검증은 운영에서도 상시 실행한다(기존: debug 레벨에서만).
-	// 실패해도 프로세스를 죽이지 않고 Error+Bypass로 통과한다(KTD3).
 	if err := conf.checkConfig(); err != nil {
 		logger.Error().Err(err).Msg("Config check failed; bypassing")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
@@ -406,7 +407,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
-	// cache_control은 미구현 — 프로세스를 죽이지 않고 Bypass로 통과한다(KTD: 페이즈 내 Fatal 금지).
 	if conf.CacheControl {
 		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
@@ -482,7 +482,6 @@ func (conf *Config) filtered(kong *pdk.PDK) (bool, int) {
 
 	for _, filter := range filters {
 		if conf.rulesFiltered(kong, filter.Rules) {
-			// 미설정(0) 필터 TTL은 전역 cache_ttl을 상속한다. 명시적 0도 상속을 의미한다(KTD1).
 			ttl := filter.CacheTTL
 			if ttl == 0 {
 				ttl = conf.CacheTTL
@@ -660,18 +659,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 }
 
 func (conf *Config) Response(kong *pdk.PDK) {
-	// go-pdk 서버에는 recover가 없어 핸들러 패닉이 프로세스 사망으로 이어진다 —
-	// Access와 동일한 방어를 둔다.
-	defer func() {
-		if err := recover(); err != nil {
-			log.Printf("kong plugin panic at: %+v, err: %+v", time.Now(), err)
-			if kong == nil {
-				log.Printf("kong fatal err ===> kong is nil at: %+v", time.Now())
-			} else {
-				_ = kong.Log.Err(fmt.Sprint(err))
-			}
-		}
-	}()
+	defer panicGuard(kong)
 
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
@@ -755,7 +743,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	if rawBody == nil {
 		logger.Debug().Msg("Response body is empty")
 	}
-	// 크기 상한 검사는 nil body도 포함한다(len(nil)==0이므로 행동은 불변).
 	if conf.CacheableBodyMaxSize > 0 && len(rawBody) > conf.CacheableBodyMaxSize {
 		logger.Debug().Msgf("Body length is bigger than allowed body_max_size: %d", conf.CacheableBodyMaxSize)
 		return
@@ -764,25 +751,26 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	now := time.Now()
 	secs := now.Unix()
 
+	ttl := cacheSignal.CacheTTL
 	cacheValue := &CacheValue{
 		Status:    httpStatus,
 		Headers:   headers,
 		Body:      rawBody,
 		BodyLen:   len(rawBody),
 		Timestamp: secs,
-		TTL:       int64(cacheSignal.CacheTTL),
+		TTL:       int64(ttl),
 		Version:   conf.CacheVersion,
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
 
-	_, marshal, err := conf.newCacheManager(int(cacheValue.TTL))
+	_, marshal, err := conf.newCacheManager(ttl)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create cache manager")
 		return
 	}
 
 	cacheKeyID := cacheSignal.CacheKeyID
-	if err := marshal.Set(context.Background(), cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
+	if err := marshal.Set(context.Background(), cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(ttl)*time.Second)); err != nil {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
@@ -846,6 +834,5 @@ func (conf *Config) cacheableResponseContentType(kong *pdk.PDK) bool {
 	//	return false
 	//end
 
-	// 목록에 없는 content-type은 캐시하지 않는다(게이팅 폴스루 수정).
 	return false
 }
