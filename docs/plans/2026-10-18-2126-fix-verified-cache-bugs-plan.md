@@ -49,7 +49,7 @@ execution: code
 ### Acceptance Examples
 
 - AE1. Covers R1. 필터 `cache_ttl: 30`·전역 15 라우트에서 첫 저장 후 16초 시점 재요청 → `Hit`(수정 전에는 전역 15초에 만료). eventual 단언(규율 6).
-- AE2. Covers R4. 캐시 히트 후 cache_ttl 경과(15초+여유) 재요청 → `Refresh` 라벨로 upstream 통과, 이후 요청 `Hit`(새 값 저장 확인). 수정 전: 낡은 값이 `Hit` 라벨로 서빙.
+- AE2. Covers R4. 캐시 히트 후 cache_ttl 경과(15초+여유) 재요청 → 캐시에서 응답하지 않고 upstream 통과(저장 만료와 freshness가 같은 TTL이라 `Miss`로 관측 — `Refresh` 라벨은 만료 직전 근사 창에서만 경쟁 도달), 이후 요청 `Hit`(재저장 확인). 수정 전: 낡은 값이 `Hit` 라벨로 서빙.
 - AE3. Covers R5. `content_type` 목록 밖 응답 → `Bypass`, 재요청도 미스(저장 없음).
 - AE4. Covers R3. `cache_control: true` 설정 라우트 → 프로세스 생존, 첫 요청 `Miss`(저장 발생 — cache_control 분기는 히트 뒤에만 도달), 이후 모든 요청 `Bypass` + Error 로그.
 - AE5. Covers R2. `cache_ttl: 0` 명시 배포 → 검증 실패 → Error+Bypass, 프로세스 생존, Redis에 영구 키 신규 적재 없음.

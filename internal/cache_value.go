@@ -13,7 +13,6 @@ type CacheValue struct {
 	Timestamp int64  `validate:"required,gte=0"`
 	TTL       int64  `validate:"required,gte=0"`
 	Version   string `validate:"required"`
-	ReqBody   []byte `validate:"required"`
 }
 
 func (v *CacheValue) String() string {

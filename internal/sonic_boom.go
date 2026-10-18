@@ -339,12 +339,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		if err := SetPlugin(kong, "reqBody", rawBody); err != nil {
-			logger.Error().Err(err).Msg("Failed to set reqBody in plugin context")
-			return
-		}
-		logger.Debug().Msg("Request body is saved to Context")
-
 		err = conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL})
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to signal cache request")
@@ -371,6 +365,8 @@ func (conf *Config) Access(kong *pdk.PDK) {
 			logger.Error().Err(err).Msg("Failed to signal cache request")
 			return
 		}
+		// 낡은 값을 서빙하지 않고 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+		return
 	}
 
 	//-- figure out if the client will accept our cache value
@@ -387,6 +383,8 @@ func (conf *Config) Access(kong *pdk.PDK) {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
 				return
 			}
+			// 만료된 값은 재검증을 위해 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+			return
 		}
 	}
 
@@ -755,14 +753,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	now := time.Now()
 	secs := now.Unix()
 
-	//	proxy_cache.res_headers = resp_get_headers(0, true)
-	//	proxy_cache.res_ttl = conf.cache_control and resource_ttl(cc) or conf.cache_ttl
-	_, err = GetPluginAny(kong, "reqBody")
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to get reqBody from plugin context")
-		return
-	}
-
 	cacheValue := &CacheValue{
 		Status:    httpStatus,
 		Headers:   headers,
@@ -771,13 +761,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		Timestamp: secs,
 		TTL:       int64(cacheSignal.CacheTTL),
 		Version:   conf.CacheVersion,
-		//ReqBody: reqBody.([]byte),
-	}
-	validate := validator.New()
-	if err := validate.Struct(conf); err != nil {
-		logger.Error().Err(err).Msg("Cache value validation failed")
-		//validationErrors := err.(validator.ValidationErrors)
-		return
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
 

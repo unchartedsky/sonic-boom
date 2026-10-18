@@ -110,7 +110,6 @@ func Benchmark_InMemory_Marshal_Set(b *testing.B) {
 		Timestamp: time.Now().Unix(),
 		TTL:       60,
 		Version:   "1.0",
-		ReqBody:   []byte{},
 	}
 
 	b.ResetTimer()
@@ -141,7 +140,6 @@ func Benchmark_InMemory_Marshal_Get(b *testing.B) {
 		Timestamp: time.Now().Unix(),
 		TTL:       60,
 		Version:   "1.0",
-		ReqBody:   []byte{},
 	}
 
 	// 사전 데이터 설정
