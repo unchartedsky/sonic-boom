@@ -36,18 +36,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # arm64 러너에서 amd64 전용 grokzen/redis-cluster 이미지를
-      # 돌리기 위한 QEMU binfmt (amd64에선 불필요)
-      - name: Set up QEMU
-        if: matrix.platform == 'linux-arm64'
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
 
       # e2e: Kong + 목업 업스트림 + 세 캐시 전략(in-memory, redis,
-      # redis-cluster) 스모크.
+      # redis-cluster) 스모크. 클러스터 이미지(redis:7-alpine 기반 자체 빌드)는
+      # 멀티아치라 두 아치 모두 네이티브로 돈다.
       - name: Run e2e smoke tests (${{ matrix.platform }})
         run: make e2e GOARCH=${{ matrix.goarch }}
