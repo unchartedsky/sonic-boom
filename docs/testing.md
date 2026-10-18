@@ -66,6 +66,10 @@ gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxi
   identity(헤더 없음/`identity` 명시) 키가 분리된다
 - HEAD: 캐시 키에 Method가 포함돼 GET 키와 분리(Miss), nil body 캐싱 왕복(재요청 Hit)
 - gzip POST 바디: 동일 압축 바디 2회는 같은 키 Hit, 비압축 동일 의미 바디는 다른 키
+- deflate·br: 사전 압축 픽스처(test/upstream/response.{deflate,br})를 해당
+  Content-Encoding으로 내주는 정적 location 기반. 재생 바이트 == 픽스처 바이트,
+  Content-Encoding 보존, 교차 오염 재생, vary 라우트에서 gzip 키와의 분리를 단언.
+  플러그인이 본문을 불투명 바이트로 취급함을 세 인코딩에서 공통으로 고정한다.
 
 개별 실행: `./scripts/smoke_in_memory.sh`, `./scripts/smoke_redis.sh`,
 `./scripts/smoke_rediscluster.sh` (Kong이 떠 있고 캐시가 비어 있어야 한다).

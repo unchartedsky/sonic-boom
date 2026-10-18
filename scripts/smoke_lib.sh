@@ -13,6 +13,7 @@ ROUTE="${2:?라우트 prefix 필수}"
 VARY_ROUTE="${3:-${2}-vary}"
 BASE="${BASE_URL:-http://localhost:8000}"
 URL="${BASE}${ROUTE}/api/users?page=2"
+FIXDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../test/upstream" && pwd)"
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "${TMPD}"' EXIT
@@ -127,6 +128,42 @@ gzip_suite() {
 	echo "  gzip suite: OK"
 }
 
+# deflate/br 단언-suite. 플러그인은 본문을 불투명 바이트로 취급하므로
+# 핵심 단언은 '재생 바이트 == 사전 압축 픽스처 바이트'다(디코딩 검증은
+# 플러그인이 아니라 픽스처를 검사하는 것이라 하지 않는다).
+# 사용법: enc_suite <기본 라우트> <vary 라우트> <deflate|br>
+enc_suite() {
+	local route="$1" vroute="$2" enc="$3"
+	local fixture="${FIXDIR}/response.${enc}"
+	local url="${BASE}${route}/enc/${enc}/api/users?enc1"
+	local vary_url="${BASE}${vroute}/enc/${enc}/api/users?encv1"
+
+	curl -s -m 10 -H "Accept-Encoding: ${enc}" -o "${TMPD}/e1.bin" -D "${TMPD}/e1.hdr" "${url}"
+	assert_status Miss "$(hdr_value "${TMPD}/e1.hdr" X-Cache-Status)" "${enc} 첫 요청"
+	curl -s -m 10 -H "Accept-Encoding: ${enc}" -o "${TMPD}/e2.bin" -D "${TMPD}/e2.hdr" "${url}"
+	assert_status Hit "$(hdr_value "${TMPD}/e2.hdr" X-Cache-Status)" "${enc} 재요청"
+	assert_eq "${enc}" "$(hdr_value "${TMPD}/e2.hdr" Content-Encoding)" "${enc} Hit Content-Encoding"
+	cmp -s "${TMPD}/e2.bin" "${fixture}" || {
+		echo "FAIL: [${STRATEGY}] ${enc} 재생 본문이 픽스처와 바이트 불일치" >&2; exit 1; }
+	echo "  ${enc} 재생 바이트 == 픽스처: OK"
+
+	# 교차 오염: Accept-Encoding 없는 재요청도 같은 키 Hit — gzip과 동일하게 재생 고정
+	curl -s -m 10 -o "${TMPD}/e3.bin" -D "${TMPD}/e3.hdr" "${url}"
+	assert_status Hit "$(hdr_value "${TMPD}/e3.hdr" X-Cache-Status)" "${enc} 교차 오염(Accept-Encoding 없음)"
+	cmp -s "${TMPD}/e3.bin" "${fixture}" || {
+		echo "FAIL: [${STRATEGY}] ${enc} 교차 오염 재생 본문 불일치" >&2; exit 1; }
+
+	# 인코딩×vary(복제 라우트): gzip으로 데운 키와 ${enc} 키는 분리된다
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o /dev/null -D "${TMPD}/ev0.hdr" "${vary_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/ev0.hdr" X-Cache-Status)" "${enc} vary gzip 데우기"
+	curl -s -m 10 -H "Accept-Encoding: ${enc}" -o /dev/null -D "${TMPD}/ev1.hdr" "${vary_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/ev1.hdr" X-Cache-Status)" "${enc} vary → gzip 키와 분리"
+	curl -s -m 10 -H "Accept-Encoding: ${enc}" -o /dev/null -D "${TMPD}/ev2.hdr" "${vary_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/ev2.hdr" X-Cache-Status)" "${enc} vary 재요청"
+
+	echo "  ${enc} suite: OK"
+}
+
 main() {
 	echo "== ${STRATEGY} e2e =="
 	wait_for_kong
@@ -150,7 +187,11 @@ main() {
 	# 5) gzip 압축 트래픽(characterization)
 	gzip_suite "${ROUTE}" "${VARY_ROUTE}"
 
-	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary, gzip 통과"
+	# 6) deflate·brotli 압축 트래픽(사전 압축 픽스처 기반)
+	enc_suite "${ROUTE}" "${VARY_ROUTE}" deflate
+	enc_suite "${ROUTE}" "${VARY_ROUTE}" br
+
+	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary, gzip, deflate, br 통과"
 }
 
 main
