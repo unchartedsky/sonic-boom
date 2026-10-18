@@ -60,14 +60,14 @@ jobs:
 
           whoami
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
           persist-credentials: false
 
       - name: Set up Go ${{ matrix.go-version }}
         id: set-up-go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
 
@@ -114,7 +114,7 @@ jobs:
           GOARCH: ${{ matrix.go-arch }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sonic-boom-${{ matrix.platform }}
           path: bin/${{ matrix.go-os }}-${{ matrix.go-arch }}/sonic-boom
@@ -129,7 +129,7 @@ jobs:
         image-name:
           - "ghcr.io/unchartedsky/sonic-boom"
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
       with:
         # https://github.community/t/github-actions-git-command-ls-remote-fails-for-private-repo-when-on-runner-works-locally/191104
         persist-credentials: false
@@ -165,7 +165,7 @@ jobs:
       env:
         DOCKER_IMAGE: ${{ matrix.image-name }}
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       id: buildx
@@ -198,7 +198,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Download artifacts
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
 
     - name: Prepare artifacts
       run: |
@@ -225,10 +225,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
 
     - name: Download artifacts
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
 
     - name: Create Release
       id: create_release

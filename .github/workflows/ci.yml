@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 통합 테스트는 compose 백엔드를 띄우고 go test를 compose 네트워크
       # 안의 golang 컨테이너에서 실행한다(로컬의 make test와 동일 경로).
@@ -34,10 +34,10 @@ jobs:
             goarch: arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.27'
 
