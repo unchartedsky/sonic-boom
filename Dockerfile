@@ -1,4 +1,4 @@
-FROM kong:3.9.1-ubuntu
+FROM kong:3.9.4-ubuntu
 
 ARG TARGETOS
 ARG TARGETARCH
