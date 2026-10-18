@@ -193,7 +193,7 @@ func TestConfig_cacheableResponseContentType(t *testing.T) {
 		// 현재 동작 문서화: 매치에 실패해도 비어있지 않으면 true를 반환한다
 		// (cacheableResponseContentType의 루프 후 return true). 설정 목록이 실질적으로
 		// 무시되는 결함이라 별도 fix 커밋에서 다룬다.
-		{name: "미일치 content-type도 현재는 true", contentTypes: []string{"application/json"}, contentType: "text/xml", want: true},
+		{name: "미일치 content-type은 캐시하지 않는다", contentTypes: []string{"application/json"}, contentType: "text/xml", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

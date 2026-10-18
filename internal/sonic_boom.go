@@ -771,12 +771,11 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 	if rawBody == nil {
 		logger.Debug().Msg("Response body is empty")
-	} else {
-		logger.Debug().Msgf("Response body length is %d", len(rawBody))
-		if conf.CacheableBodyMaxSize > 0 && len(rawBody) > conf.CacheableBodyMaxSize {
-			logger.Debug().Msgf("Body length is bigger than allowed body_max_size: %d", conf.CacheableBodyMaxSize)
-			return
-		}
+	}
+	// 크기 상한 검사는 nil body도 포함한다(len(nil)==0이므로 행동은 불변).
+	if conf.CacheableBodyMaxSize > 0 && len(rawBody) > conf.CacheableBodyMaxSize {
+		logger.Debug().Msgf("Body length is bigger than allowed body_max_size: %d", conf.CacheableBodyMaxSize)
+		return
 	}
 
 	now := time.Now()
@@ -864,5 +863,6 @@ func (conf *Config) cacheableResponseContentType(kong *pdk.PDK) bool {
 	//	return false
 	//end
 
-	return true
+	// 목록에 없는 content-type은 캐시하지 않는다(게이팅 폴스루 수정).
+	return false
 }
