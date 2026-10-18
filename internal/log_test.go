@@ -17,7 +17,6 @@ func Test_newRollingFile(t *testing.T) {
 		want       io.Writer
 		wantNotNil bool
 	}{
-		// TODO: Add test cases.
 		{
 			name: "test",
 			args: args{
@@ -52,7 +51,6 @@ func TestNewLogger(t *testing.T) {
 		want       *Logger
 		wantNotNil bool
 	}{
-		// TODO: Add test cases.
 		{
 			name: "test",
 			args: args{

@@ -38,7 +38,6 @@ func TestSetPluginEx(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		// TODO: Add test cases.
 		{
 			name: "SetPluginEx",
 			args: args{
@@ -86,7 +85,6 @@ func TestGetPluginAnyEx(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		// TODO: Add test cases.
 		{
 			name: "GetPluginAnyEx",
 			args: args{

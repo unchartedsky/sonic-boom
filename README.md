@@ -1,19 +1,55 @@
 # Sonic Boom
 
-![build](https://github.com/unchartedsky/sonic-boom/workflows/build/badge.svg)
+![CI](https://github.com/unchartedsky/sonic-boom/workflows/CI/badge.svg)
+
+Kong Gateway용 고성능 캐시 플러그인으로, in-memory, Redis, Redis Cluster 전략을 지원합니다.
+
+## 빠른 시작
+
+### 로컬 개발 환경
 
 ```bash
+# 서비스 시작
 ./run.sh
 docker-compose logs -f
+
+# 테스트 실행
+./test.sh
+
+# 스모크 테스트
+./scripts/smoke_in_memory.sh
 ```
+
+### 빌드 및 설치
 
 ```bash
-./test.sh`
+# 빌드
+go build -o sonic-boom ./cmd
+
+# Kong Gateway에 플러그인 설치
+# (Kong 설정에 따라 다름)
 ```
 
-## Config 주요 설정 예시
+## 캐시 전략
 
-[confg_v1.yml](./confg_v1.yml), [confg_v2.yml](./confg_v2.yml)를 참고하십시오.
+### In-Memory 캐시
+- **용도**: 단일 인스턴스, 고성능 캐시
+- **특징**: Ristretto 기반, 비동기 쓰기, TTL 지원
+- **설정**: `strategy: in-memory`
+
+### Redis 캐시
+- **용도**: 분산 환경, 지속성 필요
+- **특징**: 네트워크 기반, 클러스터 지원
+- **설정**: `strategy: redis`
+
+### Redis Cluster 캐시
+- **용도**: 대규모 분산 환경
+- **특징**: 자동 샤딩, 고가용성
+- **설정**: `strategy: redis-cluster`
+
+## 설정 예시
+
+[config_v1.yml](./config_v1.yml), [config_v2.yml](./config_v2.yml)를 참고하십시오.
 
 ```yaml
 ...
@@ -53,6 +89,36 @@ config:
 ...
 ```
 
+## 테스트
+
+단위 → 통합 → e2e 3층 구조. 서버가 필요한 테스트는 compose로 띄우며,
+서버가 없으면 실패한다(fail-fast).
+
+```bash
+# 통합 테스트 (compose가 redis·redis-cluster를 띄우고 go test -race 실행)
+make test
+
+# e2e (Kong + 목업 업스트림 + 세 캐시 전략 스모크)
+make e2e
+
+# 서버 없이 돌아가는 단위 테스트만 빠르게
+go test ./internal -run 'Test_InMemory|TestConfig|Test_'
+```
+
+자세한 테스트 가이드는 [docs/testing.md](./docs/testing.md)를 참고하세요.
+
+## 개발
+
+### 필수 요구사항
+- Go 1.25+
+- Docker & Docker Compose
+
+### 개발 워크플로우
+1. 코드 변경
+2. 통합 테스트: `make test`
+3. e2e: `make e2e`
+4. 커밋 및 푸시
+
 ## TODO
 
 - [x] `linux/arm64` 컨테이너 이미지 지원 ✅ 2025-02-17
@@ -60,6 +126,8 @@ config:
 - [x] in-memory 스토어 지원 ✅ 2025-02-17
 - [x] Redis cluster 스토어 지원 ✅ 2025-02-19
 - [x] OpenTelemetry 통합 ✅ 2025-02-19
+- [x] 포괄적인 테스트 커버리지 ✅ 2025-01-21
+- [x] CI/CD 파이프라인 ✅ 2025-01-21
 - [ ] Kubernetes 예제 추가
 - [ ] Kong proxycache 의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
 

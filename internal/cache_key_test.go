@@ -85,7 +85,6 @@ func TestNewCacheKey(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		// TODO: Add test cases.
 		{
 			name: "test",
 			args: args{
@@ -126,7 +125,6 @@ func Test_generateCacheKeyId(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		// TODO: Add test cases.
 		{
 			name: "test",
 			args: args{
@@ -170,7 +168,6 @@ func TestCacheKey_String(t *testing.T) {
 		fields fields
 		want   string
 	}{
-		// TODO: Add test cases.
 		{
 			name: "test",
 			fields: fields{
