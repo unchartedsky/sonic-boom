@@ -3,8 +3,8 @@ package internal
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/go-playground/validator/v10"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRedisConfig_Validation(t *testing.T) {
@@ -28,19 +28,19 @@ func TestRedisConfig_Validation(t *testing.T) {
 			name: "valid config with all fields",
 			config: RedisConfig{
 				Host:              "redis.example.com",
-				Port:             6379,
-				DBNumber:         0,
-				Username:         "user",
-				Password:         "pass",
-				PoolSize:         10,
-				MaxRetries:       3,
+				Port:              6379,
+				DBNumber:          0,
+				Username:          "user",
+				Password:          "pass",
+				PoolSize:          10,
+				MaxRetries:        3,
 				MinRetryBackoffMs: 8,
 				MaxRetryBackoffMs: 512,
-				DialTimeout:      5,
-				ReadTimeout:      3,
-				WriteTimeout:     3,
-				PoolTimeout:      5,
-				IdleTimeout:      1,
+				DialTimeout:       5,
+				ReadTimeout:       3,
+				WriteTimeout:      3,
+				PoolTimeout:       5,
+				IdleTimeout:       1,
 			},
 			wantErr: false,
 		},

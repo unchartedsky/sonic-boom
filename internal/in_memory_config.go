@@ -1,7 +1,7 @@
 package internal
 
 import (
-	"gopkg.in/go-playground/validator.v9"
+	"github.com/go-playground/validator/v10"
 )
 
 // InMemoryConfig represents the configuration for in-memory cache using Ristretto

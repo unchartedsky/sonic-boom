@@ -24,11 +24,10 @@ import (
 	//lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/dgraph-io/ristretto"
 	ristretto_store "github.com/eko/gocache/store/ristretto/v4"
-	"github.com/pkg/errors"
+	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/umisama/go-regexpcache"
-	"gopkg.in/go-playground/validator.v9"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -655,7 +654,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 		return os.ReadFile(x.BodyFilepath)
 
 	case *kong_plugin_protocol.RawBodyResult_Error:
-		return nil, errors.New(x.Error)
+		return nil, fmt.Errorf("%s", x.Error)
 
 	default:
 		return out.GetContent(), nil

@@ -3,19 +3,19 @@ package internal
 import (
 	"testing"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/go-playground/validator.v9"
 )
 
 func TestNewCacheSignal(t *testing.T) {
 	tests := []struct {
-		name      string
+		name       string
 		cacheKeyID string
 		cacheTTL   int
-		want      *CacheSignal
+		want       *CacheSignal
 	}{
 		{
-			name:      "기본 캐시 시그널 생성",
+			name:       "기본 캐시 시그널 생성",
 			cacheKeyID: "test-key",
 			cacheTTL:   3600,
 			want: &CacheSignal{
@@ -24,7 +24,7 @@ func TestNewCacheSignal(t *testing.T) {
 			},
 		},
 		{
-			name:      "TTL이 0인 캐시 시그널",
+			name:       "TTL이 0인 캐시 시그널",
 			cacheKeyID: "test-key-2",
 			cacheTTL:   0,
 			want: &CacheSignal{
