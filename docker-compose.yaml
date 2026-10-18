@@ -1,12 +1,12 @@
 services:
   mock-upstream:
-    image: nginx:alpine
+    image: nginx:1.30.6-alpine
     volumes:
       - ./test/upstream/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./test/upstream/response.json:/usr/share/nginx/html/response.json:ro
 
   redis:
-    image: redis
+    image: redis:8.10.2-alpine
 
   # Redis Cluster: 노드 3개(재고 redis:7-alpine, 멀티아치) + init 컨테이너.
   # grokzen/redis-cluster는 amd64 변형만 있어 arm64에서 QEMU가 필요했고,
@@ -14,7 +14,7 @@ services:
   # 노드별 고유 IP(172.30.0.11-13)가 announce 주소 — kong이 MOVED 리다이렉트를
   # compose 네트워크 안에서 따라갈 수 있다. 호스트 포트 노출은 없다.
   redis-cluster-node-1:
-    image: redis:7-alpine
+    image: redis:8.10.2-alpine
     command: ["redis-server", "--port", "7000", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--cluster-announce-ip", "172.30.0.11"]
     networks:
       default:
@@ -27,7 +27,7 @@ services:
       retries: 20
 
   redis-cluster-node-2:
-    image: redis:7-alpine
+    image: redis:8.10.2-alpine
     command: ["redis-server", "--port", "7000", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--cluster-announce-ip", "172.30.0.12"]
     networks:
       default:
@@ -39,7 +39,7 @@ services:
       retries: 20
 
   redis-cluster-node-3:
-    image: redis:7-alpine
+    image: redis:8.10.2-alpine
     command: ["redis-server", "--port", "7000", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--cluster-announce-ip", "172.30.0.13"]
     networks:
       default:
@@ -52,7 +52,7 @@ services:
 
   # 클러스터 생성(1회). 이미 생성돼 있으면(check 통과) 건너뛴다.
   cluster-init:
-    image: redis:7-alpine
+    image: redis:8.10.2-alpine
     depends_on:
       redis-cluster-node-1:
         condition: service_healthy
