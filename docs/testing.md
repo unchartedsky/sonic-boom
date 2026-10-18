@@ -38,9 +38,10 @@ e2e는 외부 인터넷 없이 결정론적으로 돈다.
 
 - **목업 업스트림**: `test/upstream/`(nginx)이 모든 경로에 고정 JSON을 반환한다.
   `config_v1.yml`의 모든 service host는 `mock-upstream`을 가리킨다(reqres.in 의존 제거).
-- **클러스터 announce**: redis-cluster는 고정 IP `172.30.0.10`을 announce한다.
-  kong 컨테이너가 MOVED 리다이렉트를 따라가려면 announce 주소가 compose 네트워크에서
-  라우팅 가능해야 하기 때문이다(`IP=0.0.0.0`이면 kong에서 자기 자신을 가리켜 실패).
+- **클러스터 구성**: 재고 `redis:7-alpine` 노드 3개(고정 IP `172.30.0.11-13`)와
+  `cluster-init` 컨테이너가 클러스터를 생성한다(멀티아치라 양쪽 아치 네이티브).
+  각 노드는 자기 고정 IP를 announce한다 — kong 컨테이너가 MOVED 리다이렉트를
+  compose 네트워크 안에서 따라갈 수 있어야 하기 때문이다.
 - **clean state**: `make e2e`는 시작 전 `docker compose down -v`로 캐시를 비운다.
   첫 요청 Miss 단언의 전제 조건이다.
 
