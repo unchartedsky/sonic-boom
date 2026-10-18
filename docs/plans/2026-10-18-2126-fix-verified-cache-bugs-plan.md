@@ -231,7 +231,25 @@ flowchart TB
 
 ---
 
-## Sources
+## Definition of Done
+
+**전역 완료 조건**
+
+- 검증 사다리 3층 전부 통과: 단위(-run/-skip 교정본) → `make test`(-race) → `make e2e`(AE1–AE5 단언 포함, 기존 characterization 보존).
+- `internal/sonic_boom.go`에 `logger.Fatal` 부재(grep 확인).
+- 릴리스 노트 (a)–(e)와 README 설정 예시가 U6에서 갱신됨.
+- 시도하다 버린 접근의 잔여 코드가 diff에 남지 않음.
+
+**단위별 완료 조건**
+
+- U1: 필터 TTL 30 단언(16초 Hit) 통과, no-op 루프 삭제.
+- U2: stale·버전 재저장 e2e 단언 통과, ReqBody 필드·reqBody 파이프라인·`:775-780` 죽은 검사 제거.
+- U3: cache_ttl 0 거절 단위 테스트 + AE5 e2e 단언, checkConfig 상시화·메모이즈.
+- U4: AE4 e2e 단언 통과, Response recover 추가.
+- U5: 폴스루 기대값 반전 테스트 통과, nil body 검사 통일.
+- U6: responseData 블록 제거, 문서화(README·릴리스 노트) 완료.
+
+---
 
 - `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md` — 결함 목록 G1–G25·로드맵 P0–P3(이 계획의 수정 대상은 §4.1 G1–G4·G7과 정확성 4종).
 - `docs/solutions/architecture-patterns/go-pdk-external-plugin-runtime-constraints.md` — 규율 8항(이 계획의 KTD 근거).
