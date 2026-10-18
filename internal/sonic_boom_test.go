@@ -414,6 +414,7 @@ func Test_overwritableHeader(t *testing.T) {
 		want   bool
 	}{
 		{name: "일반 헤더는 덮어쓸 수 있다", header: "Content-Type", want: true},
+		{name: "content-encoding은 재생에서 보존된다(gzip 캐시 정합성)", header: "Content-Encoding", want: true},
 		{name: "hop-by-hop connection", header: "Connection", want: false},
 		{name: "hop-by-hop transfer-encoding", header: "Transfer-Encoding", want: false},
 		{name: "hop-by-hop keep-alive", header: "Keep-Alive", want: false},
@@ -421,6 +422,7 @@ func Test_overwritableHeader(t *testing.T) {
 		{name: "ratelimit-remaining 포함 헤더", header: "X-RateLimit-Remaining", want: false},
 		{name: "대소문자 무관 ratelimit", header: "ratelimit-remaining", want: false},
 		{name: "대소문자 무관 hop-by-hop", header: "CONTENT-LENGTH", want: false},
+		{name: "대소문자 무관 content-encoding", header: "CONTENT-ENCODING", want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

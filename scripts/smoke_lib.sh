@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # sonic-boom e2e 스모크 공통 검증 라이브러리.
-# 사용법: smoke_lib.sh <전략명> <라우트 prefix>
+# 사용법: smoke_lib.sh <전략명> <라우트 prefix> [vary 라우트 prefix]
 # 전제: 호출 시점에 캐시가 비어 있어야 한다(make e2e는 down -v 후 시작).
 # Kong이 안 떠 있으면 즉시 실패한다(fail-fast).
+#
+# gzip 단언(characterization): 현재 동작을 고정하는 게 목적이다.
+# 압축 지점은 목업 업스트림 nginx가 유일하다(compose의 KONG_NGINX_HTTP_GZIP_TYPES 주석 유지).
 set -euo pipefail
 
 STRATEGY="${1:?전략명 필수}"
 ROUTE="${2:?라우트 prefix 필수}"
+VARY_ROUTE="${3:-${2}-vary}"
 BASE="${BASE_URL:-http://localhost:8000}"
 URL="${BASE}${ROUTE}/api/users?page=2"
+
+TMPD="$(mktemp -d)"
+trap 'rm -rf "${TMPD}"' EXIT
 
 curl_h() {
 	curl -s -i -m 10 "$@" | tr -d '\r'
@@ -18,6 +25,11 @@ status_of() {
 	awk -F': ' '/^X-Cache-Status:/ {print $2}' <<<"$1" | tr -d '[:space:]'
 }
 
+# -D 헤더 덤프 파일에서 값 읽기(개행 \r 제거 포함)
+hdr_value() {
+	awk -F': ' -v h="$2" 'tolower($1)==tolower(h){sub(/\r$/,""); print $2}' "$1" | head -1
+}
+
 assert_status() {
 	local want="$1" got="$2" name="$3"
 	echo "  ${name}: ${got:-<none>} (기대 ${want})"
@@ -25,6 +37,15 @@ assert_status() {
 		echo "FAIL: [${STRATEGY}] ${name} — got '${got:-<none>}', want '${want}'" >&2
 		exit 1
 	fi
+}
+
+assert_eq() {
+	local want="$1" got="$2" name="$3"
+	if [[ "${want}" != "${got}" ]]; then
+		echo "FAIL: [${STRATEGY}] ${name} — got '${got:-(empty)}', want '${want:-(empty)}'" >&2
+		exit 1
+	fi
+	echo "  ${name}: OK"
 }
 
 wait_for_kong() {
@@ -40,6 +61,70 @@ wait_for_kong() {
 	done
 	echo "FAIL: [${STRATEGY}] ${BASE}에 60초 내 접근 불가 — docker compose 기동 상태를 확인하세요" >&2
 	exit 1
+}
+
+# gzip 단언-suite. 인수: 기본 라우트(교차 오염·HEAD·POST), vary 라우트(키 분리).
+# 시나리오별 고유 쿼리스트링(page=gz*)을 쓴다 — 기존 단언의 page=2 키를
+# 재사용하면 gzip 첫 요청이 Miss가 아니라 Hit이 된다.
+gzip_suite() {
+	local route="$1" vroute="$2"
+	local gz_url="${BASE}${route}/api/users?page=gz1"
+	local vary_url="${BASE}${vroute}/api/users?page=gzv1"
+	local ref="${TMPD}/ref.json"
+
+	# 참조 본문: 플러그인 없는 라우트에서 --compressed로 받은 원문 JSON
+	curl -s --compressed -m 10 -o "${ref}" "${BASE}/noplugins/api/users?page=gzref"
+
+	# A) gzip 응답: 첫 요청 Miss, 재요청 Hit. Content-Encoding: gzip 존재,
+	#    해제 본문은 원문과 바이트 일치, Content-Length는 raw gzip 바이트 수와 일치
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o "${TMPD}/gz1.bin" -D "${TMPD}/gz1.hdr" "${gz_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/gz1.hdr" X-Cache-Status)" "gzip 첫 요청"
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o "${TMPD}/gz2.bin" -D "${TMPD}/gz2.hdr" "${gz_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/gz2.hdr" X-Cache-Status)" "gzip 재요청"
+	assert_eq gzip "$(hdr_value "${TMPD}/gz2.hdr" Content-Encoding)" "gzip Hit Content-Encoding"
+	gunzip -c "${TMPD}/gz2.bin" | cmp -s - "${ref}" || {
+		echo "FAIL: [${STRATEGY}] gzip 해제 본문이 원문과 불일치" >&2; exit 1; }
+	echo "  gzip 해제 본문 일치: OK"
+	assert_eq "$(wc -c <"${TMPD}/gz2.bin" | tr -d ' ')" "$(hdr_value "${TMPD}/gz2.hdr" Content-Length)" "gzip Hit Content-Length(관측값 고정)"
+
+	# B) 교차 오염: Accept-Encoding 없는 재요청이 같은 키 Hit — 재생 본문·헤더 고정
+	curl -s -m 10 -o "${TMPD}/plain.bin" -D "${TMPD}/plain.hdr" "${gz_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/plain.hdr" X-Cache-Status)" "교차 오염(Accept-Encoding 없음)"
+	cmp -s "${TMPD}/plain.bin" "${TMPD}/gz1.bin" || {
+		echo "FAIL: [${STRATEGY}] 교차 오염 재생 본문이 gzip 엔트리와 불일치" >&2; exit 1; }
+	assert_eq gzip "$(hdr_value "${TMPD}/plain.hdr" Content-Encoding)" "교차 오염 Content-Encoding"
+
+	# C) gzip×vary(복제 라우트): 키 분리. gzip Miss→Hit, 헤더 없음·identity는 각각 다른 키
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o /dev/null -D "${TMPD}/v1.hdr" "${vary_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/v1.hdr" X-Cache-Status)" "vary gzip 첫 요청"
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o /dev/null -D "${TMPD}/v2.hdr" "${vary_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/v2.hdr" X-Cache-Status)" "vary gzip 재요청"
+	curl -s -m 10 -o /dev/null -D "${TMPD}/v3.hdr" "${vary_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/v3.hdr" X-Cache-Status)" "vary 헤더 없음 → 다른 키"
+	curl -s -m 10 -H 'Accept-Encoding: identity' -o /dev/null -D "${TMPD}/v4.hdr" "${vary_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/v4.hdr" X-Cache-Status)" "vary identity → 다른 키"
+	curl -s -m 10 -H 'Accept-Encoding: gzip' -o /dev/null -D "${TMPD}/v5.hdr" "${vary_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/v5.hdr" X-Cache-Status)" "vary gzip 3회째(기존 키 유지)"
+
+	# D) HEAD: 캐시 키에 Method가 포함돼 GET으로 데운 키와는 다른 키다(첫 HEAD는 Miss).
+	#    본문 없는 응답(nil rawBody 경로)의 캐싱 왕복을 HEAD 2회 Miss→Hit으로 고정
+	curl -s -m 10 -I -H 'Accept-Encoding: gzip' -D "${TMPD}/h1.hdr" -o /dev/null "${gz_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/h1.hdr" X-Cache-Status)" "HEAD 첫 요청(GET 키와 분리)"
+	curl -s -m 10 -I -H 'Accept-Encoding: gzip' -D "${TMPD}/h2.hdr" -o /dev/null "${gz_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/h2.hdr" X-Cache-Status)" "HEAD 재요청(nil body 캐싱 왕복)"
+
+	# E) gzip POST 바디: 동일 압축 바디 2회는 같은 키(Miss→Hit),
+	#    비압축 동일 의미 바디는 다른 raw body → 다른 키(Miss)로 고정
+	printf '{"gzip":"post"}' | gzip -c >"${TMPD}/post.bin"
+	local post_url="${BASE}${route}/api/users?page=gzp1"
+	curl -s -m 10 -X POST -H 'Content-Encoding: gzip' --data-binary @"${TMPD}/post.bin" -o /dev/null -D "${TMPD}/p1.hdr" "${post_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/p1.hdr" X-Cache-Status)" "gzip POST 첫 요청"
+	curl -s -m 10 -X POST -H 'Content-Encoding: gzip' --data-binary @"${TMPD}/post.bin" -o /dev/null -D "${TMPD}/p2.hdr" "${post_url}"
+	assert_status Hit "$(hdr_value "${TMPD}/p2.hdr" X-Cache-Status)" "gzip POST 재요청"
+	curl -s -m 10 -X POST --data-binary '{"gzip":"post"}' -o /dev/null -D "${TMPD}/p3.hdr" "${post_url}"
+	assert_status Miss "$(hdr_value "${TMPD}/p3.hdr" X-Cache-Status)" "비압축 동일 의미 POST → 다른 키"
+
+	echo "  gzip suite: OK"
 }
 
 main() {
@@ -62,7 +147,10 @@ main() {
 	assert_status Hit "$(status_of "$(curl_h -H "Authorization: Basic ${auth1}" "${URL}")")" "vary 재요청(auth1)"
 	assert_status Miss "$(status_of "$(curl_h -H "Authorization: Basic ${auth2}" "${URL}")")" "vary 다른 자격증명(auth2)"
 
-	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary 통과"
+	# 5) gzip 압축 트래픽(characterization)
+	gzip_suite "${ROUTE}" "${VARY_ROUTE}"
+
+	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary, gzip 통과"
 }
 
 main
