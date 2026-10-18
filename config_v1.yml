@@ -277,6 +277,41 @@ services:
           - /noplugins
         strip_path: true
 
+  # AE5: cache_ttl 0 명시 배포는 검증에서 거절된다(gt=0) — Bypass로 통과.
+  - host: mock-upstream
+    name: example-ttl-zero
+    port: 80
+    protocol: http
+    routes:
+      - name: route-ttl-zero
+        paths:
+          - /ttl-zero
+        strip_path: true
+
+    plugins:
+    - name: sonic-boom
+      config:
+        response_code:
+          - 200
+        request_method:
+          - GET
+          - HEAD
+        content_type:
+          - "application/json"
+        cache_ttl: 0
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+          db_number: 1
+        log:
+          log_level: info
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /tmp
+            filename: sonic-boom-ttl-zero.log
+
   # gzip×vary 키 분리 단언 전용 복제 라우트. 기존 전략 라우트는
   # vary를 건드리지 않고(교차 오염 단언용), 여기에만 Accept-Encoding이
   # vary에 들어간다. 본문·업스트림은 전략 라우트와 동일하다.

@@ -189,6 +189,9 @@ main() {
 	echo "== ${STRATEGY} e2e =="
 	wait_for_kong
 
+	# 0) cache_ttl 0 명시 라우트는 검증에서 거절 — Error+Bypass(AE5)
+	assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
+
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 	assert_status Miss "$(status_of "$(curl_h "${URL}")")" "첫 요청"
 

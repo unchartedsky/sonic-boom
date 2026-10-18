@@ -53,7 +53,7 @@ type Config struct {
 	ContentTypes         []string           `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
 	VaryHeaders          []string           `json:"vary_headers" validate:"required" default:"[]"`
 	Filters              []Filter           `json:"filters" validate:"required" default:"[]"`
-	CacheTTL             int                `json:"cache_ttl" validate:"gte=0" default:"0"`
+	CacheTTL             int                `json:"cache_ttl" validate:"gt=0" default:"300"`
 	CacheControl         bool               `json:"cache_control" validate:"" default:"false"`
 	CacheableBodyMaxSize int                `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
 	CacheVersion         string             `json:"cache_version" validate:"" default:""`
@@ -271,12 +271,17 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		}
 	}
 
-	if conf.isDebug() {
-		if err := conf.checkConfig(); err != nil {
-			logger.Fatal().Err(err).Msg("Config check failed")
-			return
+	// 설정 검증은 운영에서도 상시 실행한다(기존: debug 레벨에서만).
+	// 실패해도 프로세스를 죽이지 않고 Error+Bypass로 통과한다(KTD3).
+	if err := conf.checkConfigOnce(); err != nil {
+		logger.Error().Err(err).Msg("Config check failed; bypassing")
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+			logger.Error().Err(err).Msg("SetHeader failed")
 		}
+		return
+	}
 
+	if conf.isDebug() {
 		if err := kong.Response.SetHeader("X-sonic-boom-Plugin-Version", Version); err != nil {
 			logger.Warn().Err(err).Msg("failed to set header")
 		}
@@ -581,6 +586,26 @@ var headersToDelete = map[string]bool{
 func headerToDelete(header string) bool {
 	nHeader := strings.ToLower(header)
 	return headersToDelete[nHeader]
+}
+
+// checkConfig 결과는 검증 대상 설정 조합을 키로 메모이즈한다 — 인스턴스가 여러 요청을
+// 동시에 처리하는 모델(go-pdk #78)에서 요청마다 validator 재생성·재검증하지 않기 위함.
+// Config에 lock을 품지 않는다(validator 콜백이 Config 값을 복사한다).
+var (
+	checkCacheMu sync.Mutex
+	checkCache   = map[string]error{}
+)
+
+func (conf *Config) checkConfigOnce() error {
+	key := fmt.Sprintf("%s|%v|%v|%v", conf.Strategy, conf.Redis, conf.RedisCluster, conf.InMemory)
+	checkCacheMu.Lock()
+	defer checkCacheMu.Unlock()
+	if err, ok := checkCache[key]; ok {
+		return err
+	}
+	err := conf.checkConfig()
+	checkCache[key] = err
+	return err
 }
 
 func (conf *Config) checkConfig() error {

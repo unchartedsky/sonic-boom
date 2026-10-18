@@ -285,6 +285,13 @@ func TestConfig_checkConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "CacheTTL 0 거절(영구 키 방지)",
+			mutate: func(c *Config) {
+				c.CacheTTL = 0
+			},
+			wantErr: true,
+		},
+		{
 			name: "알 수 없는 전략",
 			mutate: func(c *Config) {
 				c.Strategy = "bogus"
@@ -334,7 +341,7 @@ func configDefault() *Config {
 		ContentTypes:         []string{"text/plain", "application/json", "application/json; charset=utf-8"},
 		VaryHeaders:          []string{},
 		Filters:              []Filter{},
-		CacheTTL:             0,
+		CacheTTL:             300,
 		CacheControl:         false,
 		CacheableBodyMaxSize: 0,
 		CacheVersion:         "",
