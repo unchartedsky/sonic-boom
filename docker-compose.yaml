@@ -27,10 +27,13 @@ services:
       default:
         ipv4_address: 172.30.0.10
     healthcheck:
+      # QEMU 에뮬레이션(arm64 러너)에선 3노드 클러스터 부팅이 5분 넘게 걸릴 수
+      # 있어 여유 있게 잡는다. 네이티브(amd64, 맥 Rosetta)에선 ~90초면 healthy.
       test: ["CMD", "bash", "-c", "redis-cli -p 7000 cluster info | grep -q cluster_state:ok"]
       interval: 5s
       timeout: 3s
-      retries: 60
+      retries: 150
+      start_period: 30s
 
   kong:
     # image: ghcr.io/unchartedsky/sonic-boom:sha-01f9cc1
