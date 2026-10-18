@@ -22,7 +22,7 @@ import (
 	rediscluster_store "github.com/eko/gocache/store/rediscluster/v4"
 
 	//lib_store "github.com/eko/gocache/lib/v4/store"
-	"github.com/dgraph-io/ristretto"
+	"github.com/dgraph-io/ristretto/v2"
 	ristretto_store "github.com/eko/gocache/store/ristretto/v4"
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
@@ -197,21 +197,21 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 		}
 
 		// 새로운 캐시 생성
-		config := &ristretto.Config{
+		config := &ristretto.Config[string, any]{
 			MaxCost:     int64(conf.InMemory.MaxCost),
 			NumCounters: int64(conf.InMemory.NumCounters),
 			BufferItems: int64(conf.InMemory.BufferItems),
 		}
 
 		// LoadOrStore를 사용하여 동시성 안전하게 생성
-		client, err := ristretto.NewCache(config)
+		client, err := ristretto.NewCache[string, any](config)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create ristretto cache: %v", err)
 		}
 
 		actualClient, _ := ristrettoClients.LoadOrStore(conf.InMemory, client)
-		cacheStore := ristretto_store.NewRistretto(
-			actualClient.(*ristretto.Cache),
+		cacheStore := ristretto_store.NewRistretto[string, any](
+			actualClient.(*ristretto.Cache[string, any]),
 			lib_store.WithExpiration(time.Duration(ttl)*time.Second),
 		)
 

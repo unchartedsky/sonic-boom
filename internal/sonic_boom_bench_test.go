@@ -29,6 +29,7 @@ func Benchmark_InMemory_Set(b *testing.B) {
 
 func Benchmark_InMemory_Get(b *testing.B) {
 	cfg := newInMemoryConfigForTest()
+	cfg.InMemory.MaxCost = 1 << 20 // 1000건 사전 적재가 eviction되지 않게
 	cm, _, err := cfg.newCacheManager(60)
 	if err != nil {
 		b.Fatal(err)
@@ -44,8 +45,17 @@ func Benchmark_InMemory_Get(b *testing.B) {
 		}
 	}
 
-	// 비동기 쓰기 완료 대기
-	time.Sleep(100 * time.Millisecond)
+	// 비동기 쓰기 완료 대기(기한 있음) — 고정 sleep은 콜드 스타트에서 부족하다
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := cm.Get(context.Background(), "bench-key-0"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			b.Fatal("bench-key-0 not visible within deadline (ristretto async set)")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -117,6 +127,7 @@ func Benchmark_InMemory_Marshal_Set(b *testing.B) {
 
 func Benchmark_InMemory_Marshal_Get(b *testing.B) {
 	cfg := newInMemoryConfigForTest()
+	cfg.InMemory.MaxCost = 1 << 20 // 1000건 사전 적재가 eviction되지 않게
 	_, m, err := cfg.newCacheManager(60)
 	if err != nil {
 		b.Fatal(err)
@@ -142,8 +153,18 @@ func Benchmark_InMemory_Marshal_Get(b *testing.B) {
 		}
 	}
 
-	// 비동기 쓰기 완료 대기
-	time.Sleep(100 * time.Millisecond)
+	// 비동기 쓰기 완료 대기(기한 있음) — 고정 sleep은 콜드 스타트에서 부족하다
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var probe CacheValue
+		if _, err := m.Get(context.Background(), "bench-marshal-key-0", &probe); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			b.Fatal("bench-marshal-key-0 not visible within deadline (ristretto async set)")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
