@@ -14,7 +14,10 @@ services:
   # IP=0.0.0.0이면 리다이렉트가 '자기 자신(0.0.0.0)'을 가리켜 kong에서 실패한다.
   # 호스트 포트 노출은 없다 — 테스트·kong 모두 compose 네트워크 안에서 접근한다.
   redis-cluster:
+    # grokzen 이미지는 amd64 변형만 존재한다. arm64 호스트(맥, arm 러너)에서는
+    # QEMU 에뮬레이션으로 돈다 — 변형을 고정해 환경별로 다른 이미지를 잡지 않게 한다.
     image: grokzen/redis-cluster:6.2.8
+    platform: linux/amd64
     environment:
       - IP=172.30.0.10
       - INITIAL_PORT=7000

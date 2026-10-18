@@ -96,7 +96,9 @@ jobs:
 
       - name: Test
         run: |
-          go test -v ./...
+          # 유닛만. redis/rediscluster 통합 테스트는 서버가 필요해
+          # ci.yml(make test)에서 돈다(아치별 빌드·유닛 신호는 여기서).
+          go test -v ./... -skip 'Test_Redis|Test_RedisCluster'
         env:
           GOOS: ${{ matrix.go-os }}
           GOARCH: ${{ matrix.go-arch }}
