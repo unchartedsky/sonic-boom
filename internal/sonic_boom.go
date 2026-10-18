@@ -44,7 +44,39 @@ var (
 
 	tracer      = otel.Tracer("sonic-boom")
 	otelEnabled = os.Getenv("OTEL_SDK_DISABLED") != "true"
+
+	// 검증기는 프로세스당 1회 구성한다(validator.New()+등록이 실비용이고 인스턴스는
+	// 동시 사용 안전). 라우트별 검증은 매 요청 정확히 수행한다.
+	configValidator = newConfigValidator()
 )
+
+func newConfigValidator() *validator.Validate {
+	validate := validator.New()
+
+	// Redis 설정 validation을 위한 custom validation 추가
+	validate.RegisterStructValidation(func(sl validator.StructLevel) {
+		config := sl.Current().Interface().(Config)
+
+		// Redis strategy일 때 Redis 설정 검증
+		if config.Strategy == "redis" {
+			if config.Redis.Host == "" {
+				sl.ReportError(config.Redis.Host, "Host", "Redis.Host", "required", "")
+			}
+			if config.Redis.Port <= 0 || config.Redis.Port > 65536 {
+				sl.ReportError(config.Redis.Port, "Port", "Redis.Port", "range", "")
+			}
+		}
+
+		// Redis Cluster strategy일 때 RedisCluster 설정 검증
+		if config.Strategy == "redis-cluster" {
+			if len(config.RedisCluster.Addrs) == 0 {
+				sl.ReportError(config.RedisCluster.Addrs, "Addrs", "RedisCluster.Addrs", "required", "")
+			}
+		}
+	}, Config{})
+
+	return validate
+}
 
 // TODO cache control 은 나중에 구현하자
 type Config struct {
@@ -273,7 +305,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	// 설정 검증은 운영에서도 상시 실행한다(기존: debug 레벨에서만).
 	// 실패해도 프로세스를 죽이지 않고 Error+Bypass로 통과한다(KTD3).
-	if err := conf.checkConfigOnce(); err != nil {
+	if err := conf.checkConfig(); err != nil {
 		logger.Error().Err(err).Msg("Config check failed; bypassing")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
@@ -374,23 +406,26 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
-	//-- figure out if the client will accept our cache value
+	// cache_control은 미구현 — 프로세스를 죽이지 않고 Bypass로 통과한다(KTD: 페이즈 내 Fatal 금지).
 	if conf.CacheControl {
-		logger.Fatal().Msg("Cache control is enabled but not implemented yet")
+		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+			logger.Error().Err(err).Msg("SetHeader failed")
+		}
 		return
-	} else {
-		//-- don't serve stale data; res may be stored for up to `conf.storage_ttl` secs
-		now := time.Now()
-		secs := now.Unix()
+	}
 
-		if (secs - cacheValue.Timestamp) > int64(cacheTTL) {
-			if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
-				logger.Error().Err(err).Msg("Failed to signal cache request")
-				return
-			}
-			// 만료된 값은 재검증을 위해 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+	// don't serve stale data; res may be stored for up to `conf.storage_ttl` secs
+	now := time.Now()
+	secs := now.Unix()
+
+	if (secs - cacheValue.Timestamp) > int64(cacheTTL) {
+		if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
+			logger.Error().Err(err).Msg("Failed to signal cache request")
 			return
 		}
+		// 만료된 값은 재검증을 위해 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+		return
 	}
 
 	// we have cache data yo!
@@ -427,8 +462,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		}
 	}
 
-	now := time.Now()
-	secs := now.Unix()
 	age := strconv.FormatInt(secs-cacheValue.Timestamp, 10)
 	cacheValue.Headers["Age"] = []string{age}
 	cacheValue.Headers["X-Cache-Status"] = []string{"Hit"}
@@ -588,50 +621,8 @@ func headerToDelete(header string) bool {
 	return headersToDelete[nHeader]
 }
 
-// checkConfig 결과는 검증 대상 설정 조합을 키로 메모이즈한다 — 인스턴스가 여러 요청을
-// 동시에 처리하는 모델(go-pdk #78)에서 요청마다 validator 재생성·재검증하지 않기 위함.
-// Config에 lock을 품지 않는다(validator 콜백이 Config 값을 복사한다).
-var (
-	checkCacheMu sync.Mutex
-	checkCache   = map[string]error{}
-)
-
-func (conf *Config) checkConfigOnce() error {
-	key := fmt.Sprintf("%s|%v|%v|%v", conf.Strategy, conf.Redis, conf.RedisCluster, conf.InMemory)
-	checkCacheMu.Lock()
-	defer checkCacheMu.Unlock()
-	if err, ok := checkCache[key]; ok {
-		return err
-	}
-	err := conf.checkConfig()
-	checkCache[key] = err
-	return err
-}
-
 func (conf *Config) checkConfig() error {
-	validate := validator.New()
-
-	// Redis 설정 validation을 위한 custom validation 추가
-	validate.RegisterStructValidation(func(sl validator.StructLevel) {
-		config := sl.Current().Interface().(Config)
-
-		// Redis strategy일 때 Redis 설정 검증
-		if config.Strategy == "redis" {
-			if config.Redis.Host == "" {
-				sl.ReportError(config.Redis.Host, "Host", "Redis.Host", "required", "")
-			}
-			if config.Redis.Port <= 0 || config.Redis.Port > 65536 {
-				sl.ReportError(config.Redis.Port, "Port", "Redis.Port", "range", "")
-			}
-		}
-
-		// Redis Cluster strategy일 때 RedisCluster 설정 검증
-		if config.Strategy == "redis-cluster" {
-			if len(config.RedisCluster.Addrs) == 0 {
-				sl.ReportError(config.RedisCluster.Addrs, "Addrs", "RedisCluster.Addrs", "required", "")
-			}
-		}
-	}, Config{})
+	validate := configValidator
 
 	return validate.Struct(conf)
 }
@@ -686,6 +677,19 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 }
 
 func (conf *Config) Response(kong *pdk.PDK) {
+	// go-pdk 서버에는 recover가 없어 핸들러 패닉이 프로세스 사망으로 이어진다 —
+	// Access와 동일한 방어를 둔다.
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("kong plugin panic at: %+v, err: %+v", time.Now(), err)
+			if kong == nil {
+				log.Printf("kong fatal err ===> kong is nil at: %+v", time.Now())
+			} else {
+				_ = kong.Log.Err(fmt.Sprint(err))
+			}
+		}
+	}()
+
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
 
