@@ -23,7 +23,7 @@ build:
 test:
 	set -euo pipefail
 	trap '$(COMPOSE) down >/dev/null 2>&1 || true' EXIT
-	$(COMPOSE) up -d --wait redis redis-cluster
+	$(COMPOSE) up -d --wait redis cluster-init
 	$(COMPOSE) --profile test run --rm go-test
 
 e2e: build

@@ -11,7 +11,7 @@ import (
 func newRedisClusterConfigForTest() *Config {
 	cfg := configDefault()
 	cfg.Strategy = "redis-cluster"
-	cfg.RedisCluster.Addrs = []string{"redis-cluster:7000", "redis-cluster:7001", "redis-cluster:7002"}
+	cfg.RedisCluster.Addrs = []string{"redis-cluster:7000"} // 노드-1의 네트워크 별칭, 나머지는 자동 발견
 	cfg.RedisCluster.Password = ""
 	cfg.RedisCluster.MaxRetries = 3
 	cfg.RedisCluster.DialTimeout = 5
