@@ -24,7 +24,7 @@ docker-compose logs -f
 
 ```bash
 # 빌드
-go build -o sonic-boom ./cmd
+go build -o sonic-boom .
 
 # Kong Gateway에 플러그인 설치
 # (Kong 설정에 따라 다름)
@@ -49,7 +49,7 @@ go build -o sonic-boom ./cmd
 
 ## 설정 예시
 
-[config_v1.yml](./config_v1.yml), [config_v2.yml](./config_v2.yml)를 참고하십시오.
+[config_v1.yml](./config_v1.yml)을 참고하십시오(선언형 설정). [config_v2.yml](./config_v2.yml)은 reqres.in 시절의 미사용 레거시다.
 
 ```yaml
 ...

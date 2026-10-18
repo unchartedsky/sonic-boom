@@ -38,7 +38,7 @@ e2e는 외부 인터넷 없이 결정론적으로 돈다.
 
 - **목업 업스트림**: `test/upstream/`(nginx)이 모든 경로에 고정 JSON을 반환한다.
   `config_v1.yml`의 모든 service host는 `mock-upstream`을 가리킨다(reqres.in 의존 제거).
-- **클러스터 구성**: 재고 `redis:7-alpine` 노드 3개(고정 IP `172.30.0.11-13`)와
+- **클러스터 구성**: 고정 태그 `redis:8.10.2-alpine` 노드 3개(고정 IP `172.30.0.11-13`)와
   `cluster-init` 컨테이너가 클러스터를 생성한다(멀티아치라 양쪽 아치 네이티브).
   각 노드는 자기 고정 IP를 announce한다 — kong 컨테이너가 MOVED 리다이렉트를
   compose 네트워크 안에서 따라갈 수 있어야 하기 때문이다.
@@ -47,7 +47,7 @@ e2e는 외부 인터넷 없이 결정론적으로 돈다.
 
 ## 스모크 검증 항목 (`scripts/smoke_lib.sh`)
 
-각 전략(in-memory, redis, redis-cluster) 공통 6단언:
+각 전략(in-memory, redis, redis-cluster) 공통 6단언 + gzip suite(characterization):
 
 1. 첫 요청 `X-Cache-Status: Miss` — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 2. 같은 키 재요청 `Hit`
@@ -55,6 +55,17 @@ e2e는 외부 인터넷 없이 결정론적으로 돈다.
 4. vary 헤더: `Authorization` 자격증명별 첫 요청 `Miss`
 5. 같은 자격증명 재요청 `Hit`
 6. 다른 자격증명은 다른 캐시 키로 `Miss`
+
+gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxied any` 포함):
+
+- gzip 응답: `Accept-Encoding: gzip` 첫 요청 Miss → 재요청 Hit, `Content-Encoding: gzip`
+  존재, `--compressed` 해제 본문이 원문과 바이트 일치, Content-Length는 raw gzip 바이트 수와 일치
+- 교차 오염: Accept-Encoding 없는 재요청이 같은 키 Hit — gzip 엔트리가 그대로 재생되는
+  현재 동작을 바이트 수준으로 고정(전략 기본 라우트에는 Accept-Encoding vary가 없다)
+- gzip×vary 키 분리: 전략별 `-vary` 복제 라우트(`config_v1.yml`)에서 gzip 키와
+  identity(헤더 없음/`identity` 명시) 키가 분리된다
+- HEAD: 캐시 키에 Method가 포함돼 GET 키와 분리(Miss), nil body 캐싱 왕복(재요청 Hit)
+- gzip POST 바디: 동일 압축 바디 2회는 같은 키 Hit, 비압축 동일 의미 바디는 다른 키
 
 개별 실행: `./scripts/smoke_in_memory.sh`, `./scripts/smoke_redis.sh`,
 `./scripts/smoke_rediscluster.sh` (Kong이 떠 있고 캐시가 비어 있어야 한다).
