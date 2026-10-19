@@ -22,6 +22,7 @@ ctx 핸드오프라 클라이언트가 직접 호출하는 경로가 아니며, 
 ```bash
 make test   # compose 백엔드(redis, redis-cluster) 기동 → go test ./... -race 실행 → 정리
 make e2e    # 플러그인 빌드 → compose 전체 clean 기동(down -v) → 세 전략 스모크 → 정리
+make stress # 동접 스트레스 시나리오 — 스탬피드(fill-lock on/off)·CSC on/off 실측
 make build  # build.sh 위임, bin/linux-${GOARCH}/sonic-boom 크로스컴파일
 ```
 
@@ -73,6 +74,18 @@ gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxi
 
 개별 실행: `./scripts/smoke_in_memory.sh`, `./scripts/smoke_redis.sh`,
 `./scripts/smoke_rediscluster.sh` (Kong이 떠 있고 캐시가 비어 있어야 한다).
+
+## 스트레스 시나리오 (`scripts/stress_scenarios.sh`, `make stress`)
+
+지표는 업스트림(mock-upstream nginx 접근 로그) 호출 수와 p50/p95/p99·rps다.
+
+- **스탬피드**: 900KB 응답을 `limit_rate 100k`로 흘려 약 8초의 미스 창을 만들고
+  동시 버스트(`xargs -P` curl). fill-lock 끔(`/redis-nolock`)은 전원 업스트림,
+  켬(`/redis-stampede`, wait 15s)은 1건만 fill하고 나머지는 채워진 값으로 서빙된다.
+- **CSC**: 같은 조건(db 0)에서 CSC off(`/redis-nocsc`)·on(`/redis-csc`)의 warm 비교.
+  compose redis가 근거리라 이득이 작게 나오며, redis RTT가 큰 환경일수록 벌어진다.
+- **도구 주의(실측)**: ab는 같은 키 동시 버스트를 순차적으로 풀어 스탬피드를
+  만들지 못한다(3@3에도 업스트림 1). 버스트는 xargs -P curl, warm 처리량은 ab.
 
 ## 알려진 특성
 

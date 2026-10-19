@@ -78,12 +78,21 @@ config:
     cache_ttl: 15                   # 캐시할 엔티티의 TTL 값. 기본 300. 0은 거절된다(Redis 영구 키 방지)
     cacheable_body_max_size: 100000 # 캐시 고려할 최대 허용 Body 길이
     strategy: redis                 # 캐시 방식
+    fill_lock:                      # 캐시 스탬피드 완화(동시 미스 시 1건만 업스트림). 기본 켜짐
+        enabled: true               # 끄면 동시 미스 전원이 업스트림로 간다
+        ttl_ms: 3000                # fill 주도권 락 TTL. 승자 장애 시 자동 해제 상한
+        wait_ms: 200                # 패자가 채워지기를 기다리는 상한. 0이면 대기 없이 통과
     redis:
         host: redis                 # 접근할 Redis 호스트명. 기본값 localhost
         port: 6379                  # 접근할 Redis 포트번호. 기본값 6379
         pool_size: 10               # 기본값 10.
         max_retries: 5              # 재시도. 기본값 3. 끄고 싶을 경우, -1
-        db_number: 0                # 기본값 0
+        db_number: 0                # 기본값 0. client_side_cache 활성 시 0이어야 한다
+        client_side_cache:          # 로컬 L1(go-redis 실험 기능). 기본 끔. standalone 전용
+            enabled: false
+            max_entries: 0          # 0이면 라이브러리 기본 상한
+            max_memory_bytes: 0     # 0이면 무제한(항목 수 상한 우선)
+            max_staleness_ms: 0     # 캐시 TTL 이하 권장 — 신선도 계약 보호
         min_retry_backoff_ms: 8     # 단위는 ms
         max_retry_backoff_ms: 512   # 단위는 ms
         dial_timeout: 5             # 단위는 초(s)
