@@ -13,7 +13,7 @@ import (
 // 설계: 승자(락 획득)만 업스트림 fill, 패자는 지터 재폴링으로 기다렸다가
 // 값이 채워지면 그 값을 돌려받고, 기한 내 안 채워지면 통과(오늘의 동작).
 
-func Test_FillLock_SingleWinnerAmongConcurrent(t *testing.T) {
+func Test_Redis_FillLock_SingleWinnerAmongConcurrent(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cm, _, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
@@ -36,7 +36,7 @@ func Test_FillLock_SingleWinnerAmongConcurrent(t *testing.T) {
 	require.Len(t, wins, 1, "동시 획득 시도 %d회 중 정확히 1승자", n)
 }
 
-func Test_FillLock_LoserWaitsAndServesFilledValue(t *testing.T) {
+func Test_Redis_FillLock_LoserWaitsAndServesFilledValue(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cm, marshal, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func Test_FillLock_LoserWaitsAndServesFilledValue(t *testing.T) {
 	require.Equal(t, []byte("filled"), got.Body)
 }
 
-func Test_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
+func Test_Redis_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cm, marshal, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func Test_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 	require.Less(t, time.Since(t0), 20*time.Millisecond)
 }
 
-func Test_FillLock_ReleasedAfterDelete(t *testing.T) {
+func Test_Redis_FillLock_ReleasedAfterDelete(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cm, _, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func Test_FillLock_Defaults(t *testing.T) {
 
 // fillLockOrWait 조합 단언(리뷰 #1) — 이 diff의 핵심 주장인 승자/패자 분기가
 // 헬퍼가 아니라 조합 수준에서 굳게 움직이는지 잡는다.
-func Test_FillLock_OrWait_Disabled(t *testing.T) {
+func Test_Redis_FillLock_OrWait_Disabled(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cfg.FillLock.Enabled = false
 	cm, marshal, err := cfg.newCacheManager(10)
@@ -109,7 +109,7 @@ func Test_FillLock_OrWait_Disabled(t *testing.T) {
 	require.Nil(t, filled)
 }
 
-func Test_FillLock_OrWait_FreshKeyWinner(t *testing.T) {
+func Test_Redis_FillLock_OrWait_FreshKeyWinner(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cm, marshal, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func Test_FillLock_OrWait_FreshKeyWinner(t *testing.T) {
 	require.Nil(t, filled)
 }
 
-func Test_FillLock_OrWait_LoserServesFilled(t *testing.T) {
+func Test_Redis_FillLock_OrWait_LoserServesFilled(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cfg.FillLock.WaitMs = 2000
 	cm, marshal, err := cfg.newCacheManager(10)
@@ -140,7 +140,7 @@ func Test_FillLock_OrWait_LoserServesFilled(t *testing.T) {
 	require.Equal(t, []byte("filled"), filled.Body)
 }
 
-func Test_FillLock_OrWait_LoserTimeoutPasses(t *testing.T) {
+func Test_Redis_FillLock_OrWait_LoserTimeoutPasses(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cfg.FillLock.WaitMs = 150
 	cm, marshal, err := cfg.newCacheManager(10)
@@ -154,7 +154,7 @@ func Test_FillLock_OrWait_LoserTimeoutPasses(t *testing.T) {
 	require.Nil(t, filled, "기한 초과면 nil(통과 디그레이드)")
 }
 
-func Test_FillLock_OrWait_DefaultTTLWhenZero(t *testing.T) {
+func Test_Redis_FillLock_OrWait_DefaultTTLWhenZero(t *testing.T) {
 	cfg := newRedisConfigForTest()
 	cfg.FillLock.TTLMs = 0
 	cm, marshal, err := cfg.newCacheManager(10)
