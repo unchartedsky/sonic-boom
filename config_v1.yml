@@ -109,6 +109,172 @@ services:
             folder: /tmp
             filename: sonic-boom-redis-csc.log
 
+  # 스트레스 시나리오용 대조 라우트(로드맵 U5). /redis-nolock은 fill-lock 끔,
+  # /redis-nocsc는 /redis-csc와 같은 조건(db 0)에서 CSC만 끔.
+  - host: mock-upstream
+    name: example-redis-nolock
+    port: 80
+    protocol: http
+    routes:
+      - name: route-redis-nolock
+        paths:
+          - /redis-nolock
+        strip_path: true
+
+    plugins:
+    - name: sonic-boom
+      config:
+        response_code:
+          - 200
+          - 301
+          - 404
+        request_method:
+          - GET
+          - HEAD
+          - POST
+          - PUT
+        content_type:
+          - "text/plain"
+          - "text/html; charset=utf-8"
+          - "application/json"
+          - "application/json; charset=utf-8"
+        vary_headers:
+          - Authorization
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: false
+        redis:
+          host: redis
+          port: 6379
+          db_number: 1
+          pool_size: 10
+          max_retries: 5
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
+        log:
+          log_level: info
+          diode_enabled: false
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /tmp
+            filename: sonic-boom-redis-nolock.log
+
+  # 스탬피드 측정용: 느린 대용량 응답(약 9초 fill)이라 대기 상한을
+  # fill 시간보다 길게(15s) 둔 락 켬 라우트. /redis-nolock과 비교한다.
+  - host: mock-upstream
+    name: example-redis-stampede
+    port: 80
+    protocol: http
+    routes:
+      - name: route-redis-stampede
+        paths:
+          - /redis-stampede
+        strip_path: true
+
+    plugins:
+    - name: sonic-boom
+      config:
+        response_code:
+          - 200
+          - 301
+          - 404
+        request_method:
+          - GET
+          - HEAD
+          - POST
+          - PUT
+        content_type:
+          - "text/plain"
+          - "text/html; charset=utf-8"
+          - "application/json"
+          - "application/json; charset=utf-8"
+        vary_headers:
+          - Authorization
+        cache_ttl: 60
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: true
+          ttl_ms: 30000
+          wait_ms: 15000
+        redis:
+          host: redis
+          port: 6379
+          db_number: 2
+          pool_size: 10
+          max_retries: 5
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
+        log:
+          log_level: info
+          diode_enabled: false
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /tmp
+            filename: sonic-boom-redis-stampede.log
+
+  - host: mock-upstream
+    name: example-redis-nocsc
+    port: 80
+    protocol: http
+    routes:
+      - name: route-redis-nocsc
+        paths:
+          - /redis-nocsc
+        strip_path: true
+
+    plugins:
+    - name: sonic-boom
+      config:
+        response_code:
+          - 200
+          - 301
+          - 404
+        request_method:
+          - GET
+          - HEAD
+          - POST
+          - PUT
+        content_type:
+          - "text/plain"
+          - "text/html; charset=utf-8"
+          - "application/json"
+          - "application/json; charset=utf-8"
+        vary_headers:
+          - Authorization
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+          db_number: 0
+          pool_size: 10
+          max_retries: 5
+          dial_timeout: 0
+          read_timeout: 0
+          write_timeout: 0
+          pool_timeout: 0
+          idle_timeout: 0
+        log:
+          log_level: info
+          diode_enabled: false
+          console_logging_enabled: true
+          file_log:
+            enabled: true
+            folder: /tmp
+            filename: sonic-boom-redis-nocsc.log
+
   - host: mock-upstream
     name: example-redis-cluster
     port: 80

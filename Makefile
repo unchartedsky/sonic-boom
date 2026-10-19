@@ -12,7 +12,7 @@
 GOARCH ?= $(shell uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)
 COMPOSE ?= docker compose
 
-.PHONY: build test e2e clean
+.PHONY: build test e2e stress clean
 
 .ONESHELL:
 SHELL := /bin/bash
@@ -35,6 +35,13 @@ e2e: build
 	./scripts/smoke_in_memory.sh
 	./scripts/smoke_redis.sh
 	./scripts/smoke_rediscluster.sh
+
+stress: build
+	set -euo pipefail
+	trap '$(COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
+	$(COMPOSE) down -v --remove-orphans
+	$(COMPOSE) up -d --build --wait
+	./scripts/stress_scenarios.sh
 
 clean:
 	$(COMPOSE) down -v --remove-orphans
