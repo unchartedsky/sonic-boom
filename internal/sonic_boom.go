@@ -425,7 +425,9 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
+	lookupStart := time.Now()
 	cached, err := marshal.Get(context.Background(), cacheKeyID, new(CacheValue))
+	recordCacheLookup(conf.Strategy, time.Since(lookupStart))
 	if cached == nil || err != nil || err == redis.Nil {
 		logger.Debug().Msg("Cache miss")
 
@@ -516,6 +518,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 	age := strconv.FormatInt(secs-cacheValue.Timestamp, 10)
 	cacheValue.Headers["Age"] = []string{age}
 	cacheValue.Headers["X-Cache-Status"] = []string{"Hit"}
+	recordCacheStatus(conf.Strategy, "Hit")
 
 	logger.Debug().Msgf("CacheValue Headers: %+v", cacheValue.Headers)
 	kong.Response.Exit(cacheValue.Status, cacheValue.Body, cacheValue.Headers)
@@ -694,6 +697,7 @@ func (conf *Config) signalCacheReqWithStatus(kong *pdk.PDK, signal CacheSignal, 
 	if cacheStatus == "" {
 		cacheStatus = "Miss"
 	}
+	recordCacheStatus(conf.Strategy, cacheStatus)
 
 	if err := kong.Response.SetHeader("X-Cache-Status", cacheStatus); err != nil {
 		logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
