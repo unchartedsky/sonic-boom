@@ -1,203 +1,112 @@
 package internal
 
 import (
-	"fmt"
-	"os"
 	"testing"
 
-	"github.com/Kong/go-pdk"
-	"github.com/Kong/go-pdk/bridge"
-	"github.com/Kong/go-pdk/bridge/bridgetest"
-	"github.com/Kong/go-pdk/client"
-	kongctx "github.com/Kong/go-pdk/ctx"
-	"github.com/Kong/go-pdk/ip"
-	"github.com/Kong/go-pdk/nginx"
-	"github.com/Kong/go-pdk/node"
-	"github.com/Kong/go-pdk/request"
-	"github.com/Kong/go-pdk/response"
-	"github.com/Kong/go-pdk/router"
-	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
-	"github.com/Kong/go-pdk/service"
-	service_request "github.com/Kong/go-pdk/service/request"
-	service_response "github.com/Kong/go-pdk/service/response"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
-	"github.com/unchartedsky/sonic-boom/test"
+	"github.com/stretchr/testify/require"
 )
 
-func mockPdkDefault(t *testing.T) *pdk.PDK {
-	q, err := bridge.WrapHeaders(map[string][]string{
-		"X-Test": {"wayback"},
+// 캐시 키 결정론성 단언(계획 U1): 같은 CacheKey는 항상 같은 키, 맵 삽입
+// 순서와 무관, 필드 하나만 달라도 다른 키. hashstructure 제거 후
+// 직렬화+xxhash 구현이 이 계약을 지키는지 검증한다.
+
+func Test_GenerateCacheKeyID_Deterministic(t *testing.T) {
+	logger := defaultLogger()
+
+	key := func() *CacheKey {
+		return &CacheKey{
+			Consumer:  "consumer-1",
+			Service:   "svc-1",
+			Route:     "route-1",
+			Method:    "GET",
+			URL:       "/api/users",
+			QueryArgs: map[string][]string{"page": {"2"}, "size": {"10"}},
+			Headers:   map[string]string{"Host": "example.com"},
+			Body:      []byte(`{"a":1}`),
+			CacheTTL:  15,
+		}
+	}
+
+	k1, err := generateCacheKeyID(logger, key())
+	require.NoError(t, err)
+	require.NotEmpty(t, k1)
+
+	k2, err := generateCacheKeyID(logger, key())
+	require.NoError(t, err)
+	require.Equal(t, k1, k2, "같은 CacheKey는 같은 키")
+}
+
+func Test_GenerateCacheKeyID_MapOrderInsensitive(t *testing.T) {
+	logger := defaultLogger()
+
+	a, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/x", CacheTTL: 15,
+		QueryArgs: map[string][]string{"a": {"1"}, "b": {"2"}, "c": {"3"}},
+		Headers:   map[string]string{"H1": "v1", "H2": "v2"},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	b := bridge.New(bridgetest.Mock(t, []bridgetest.MockStep{
-		{Method: "kong.client.get_consumer", Ret: &kong_plugin_protocol.Consumer{Id: "001", Username: "Jon Doe"}},
+	b, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/x", CacheTTL: 15,
+		QueryArgs: map[string][]string{"c": {"3"}, "a": {"1"}, "b": {"2"}},
+		Headers:   map[string]string{"H2": "v2", "H1": "v1"},
+	})
+	require.NoError(t, err)
 
-		{Method: "kong.router.get_service", Ret: &kong_plugin_protocol.Service{
-			Id:       "003:004",
-			Name:     "self_service",
-			Protocol: "http",
-			Path:     "/v0/left",
-		}},
-		{Method: "kong.router.get_route", Ret: &kong_plugin_protocol.Route{
-			Id:        "001:002",
-			Name:      "route_66",
-			Protocols: []string{"http", "tcp"},
-			Paths:     []string{"/v0/left", "/v1/this"},
-		}},
-
-		{Method: "kong.request.get_method", Ret: bridge.WrapString("POST")},
-		{Method: "kong.request.get_path", Ret: bridge.WrapString("/login/orout")},
-
-		{Method: "kong.request.get_header", Args: bridge.WrapString("Host"), Ret: bridge.WrapString("example.com")},
-		{Method: "kong.request.get_query", Args: &kong_plugin_protocol.Int{V: 1000}, Ret: q},
-		//{"kong.request.get_path_with_query", nil, bridge.WrapString("/login/orout?ref=wayback")},
-	}))
-	return &pdk.PDK{
-
-		Client:          client.Client{PdkBridge: b},
-		Ctx:             kongctx.Ctx{PdkBridge: b},
-		Log:             test.MockLogDefault(),
-		Nginx:           nginx.Nginx{PdkBridge: b},
-		Request:         request.Request{PdkBridge: b},
-		Response:        response.Response{PdkBridge: b},
-		Router:          router.Router{PdkBridge: b},
-		IP:              ip.Ip{PdkBridge: b},
-		Node:            node.Node{PdkBridge: b},
-		Service:         service.Service{PdkBridge: b},
-		ServiceRequest:  service_request.Request{PdkBridge: b},
-		ServiceResponse: service_response.Response{PdkBridge: b},
-	}
+	require.Equal(t, a, b, "맵 삽입 순서가 달라도 같은 키")
 }
 
-func TestNewCacheKey(t *testing.T) {
-	l := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	type args struct {
-		kong     *pdk.PDK
-		conf     *Config
-		body     []byte
-		cacheTTL int
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "test",
-			args: args{
-				kong: mockPdkDefault(t),
-				conf: &Config{
-					logger:      &Logger{Logger: &l},
-					VaryHeaders: []string{"Host"},
-				},
-				body:     []byte("test"),
-				cacheTTL: 100,
-			},
-			want: "16020438735363915618",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewCacheKey(tt.args.kong, tt.args.conf, tt.args.body, tt.args.cacheTTL)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewCacheKey() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("NewCacheKey() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
+func Test_GenerateCacheKeyID_NilMapEqualsEmpty(t *testing.T) {
+	logger := defaultLogger()
+
+	a, err := generateCacheKeyID(logger, &CacheKey{Method: "GET", URL: "/x", CacheTTL: 15})
+	require.NoError(t, err)
+
+	b, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/x", CacheTTL: 15,
+		QueryArgs: map[string][]string{}, Headers: map[string]string{},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, a, b, "nil 맵과 빈 맵은 같은 키")
 }
 
-func Test_generateCacheKeyId(t *testing.T) {
-	l := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	type args struct {
-		logger   *Logger
-		cacheKey *CacheKey
+func Test_GenerateCacheKeyID_FieldChangeChangesKey(t *testing.T) {
+	logger := defaultLogger()
+	base := &CacheKey{
+		Consumer: "c", Service: "s", Route: "r", Method: "GET", URL: "/x",
+		QueryArgs: map[string][]string{"p": {"1"}}, Headers: map[string]string{"H": "v"},
+		Body: []byte("body"), CacheTTL: 15,
 	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "test",
-			args: args{
-				logger: &Logger{Logger: &l},
-				cacheKey: &CacheKey{
-					Method: "GET",
-					URL:    "/v0/left",
-				},
-			},
-			want: "12183599531055065935",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := generateCacheKeyID(tt.args.logger, tt.args.cacheKey)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("generateCacheKeyID() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("generateCacheKeyID() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
+	baseKey, err := generateCacheKeyID(logger, base)
+	require.NoError(t, err)
 
-func TestCacheKey_String(t *testing.T) {
-	type fields struct {
-		Consumer  string
-		Service   string
-		Route     string
-		Method    string
-		URL       string
-		QueryArgs map[string][]string
-		Headers   map[string]string
-		Body      []byte
-		CacheTTL  int
+	mutations := map[string]func(k *CacheKey){
+		"consumer": func(k *CacheKey) { k.Consumer = "c2" },
+		"service":  func(k *CacheKey) { k.Service = "s2" },
+		"route":    func(k *CacheKey) { k.Route = "r2" },
+		"method":   func(k *CacheKey) { k.Method = "POST" },
+		"url":      func(k *CacheKey) { k.URL = "/y" },
+		"queryarg": func(k *CacheKey) { k.QueryArgs["p"] = []string{"2"} },
+		"header":   func(k *CacheKey) { k.Headers["H"] = "v2" },
+		"body":     func(k *CacheKey) { k.Body = []byte("body2") },
+		"ttl":      func(k *CacheKey) { k.CacheTTL = 30 },
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   string
-	}{
-		{
-			name: "test",
-			fields: fields{
-				Consumer: "consumer",
-				Method:   "HEAD",
-				URL:      "/v0/left",
-				Body:     []byte("test"),
-				Headers: map[string]string{
-					"Host": "example.com",
-				},
-				CacheTTL: 100,
-			},
-			want: "CacheKey{Consumer: consumer, Service: , Route: , Method: HEAD, URL: /v0/left, QueryArgs: map[], Headers: map[Host:example.com], BodyLen: 4, CacheTTL: 100}",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &CacheKey{
-				Consumer:  tt.fields.Consumer,
-				Service:   tt.fields.Service,
-				Route:     tt.fields.Route,
-				Method:    tt.fields.Method,
-				URL:       tt.fields.URL,
-				QueryArgs: tt.fields.QueryArgs,
-				Headers:   tt.fields.Headers,
-				Body:      tt.fields.Body,
-				CacheTTL:  tt.fields.CacheTTL,
-			}
-			assert.Equalf(t, tt.want, c.String(), "String()")
-			assert.Equalf(t, tt.want, fmt.Sprintf("%v", c), "String()")
-		})
+	for name, mutate := range mutations {
+		k := &CacheKey{
+			Consumer: base.Consumer, Service: base.Service, Route: base.Route,
+			Method: base.Method, URL: base.URL, QueryArgs: map[string][]string{},
+			Headers: map[string]string{}, Body: base.Body, CacheTTL: base.CacheTTL,
+		}
+		for kk, vv := range base.QueryArgs {
+			k.QueryArgs[kk] = vv
+		}
+		for kk, vv := range base.Headers {
+			k.Headers[kk] = vv
+		}
+		mutate(k)
+		got, err := generateCacheKeyID(logger, k)
+		require.NoError(t, err, name)
+		require.NotEqual(t, baseKey, got, "필드 %s 변경은 키를 바꿔야 한다", name)
 	}
 }

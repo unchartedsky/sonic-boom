@@ -151,7 +151,9 @@ func (conf *Config) cacheVersion() string {
 		return fromEnv
 	}
 
-	return Version
+	// 캐시 키 알고리즘 전환(hashstructure → 직렬화+xxhash) 구획 마커 —
+	// 신구 키가 섞이지 않게 기본 버전만 구분한다. env 사용자는 자기 관리.
+	return "2-" + Version
 }
 
 // See https://github.com/Kong/go-pdk/issues/78

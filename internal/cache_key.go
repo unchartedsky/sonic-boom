@@ -2,10 +2,13 @@ package internal
 
 import (
 	"fmt"
-	"github.com/Kong/go-pdk"
-	"github.com/go-playground/validator/v10"
-	"github.com/mitchellh/hashstructure/v2"
+	"sort"
 	"strconv"
+	"strings"
+
+	"github.com/Kong/go-pdk"
+	"github.com/cespare/xxhash/v2"
+	"github.com/go-playground/validator/v10"
 )
 
 type CacheKey struct {
@@ -147,13 +150,54 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 	return generateCacheKeyID(logger, cacheKey)
 }
 
+// generateCacheKeyID 는 CacheKey를 결정론적 바이트열로 직렬화해 xxhash로
+// 압축한다. 직렬화 규칙(길이 접두 필드 + 정렬된 맵 항목)이 결정론성의 전부다 —
+// 맵 삽입 순서와 무관하게 같은 논리적 키는 같은 바이트열이 된다. 이전
+// hashstructure 대비 요청 핫패스의 reflect 비용이 사라지고, 알고리즘 전환은
+// CacheVersion 마커(sonic_boom.go cacheVersion)로 구획된다.
 func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
-	hash, err := hashstructure.Hash(cacheKey, hashstructure.FormatV2, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("hashing error")
-		return "", err
+	var b strings.Builder
+	writeField := func(parts ...string) {
+		for _, p := range parts {
+			b.WriteString(strconv.Itoa(len(p)))
+			b.WriteByte(':')
+			b.WriteString(p)
+			b.WriteByte('|')
+		}
 	}
 
+	writeField(cacheKey.Consumer, cacheKey.Service, cacheKey.Route, cacheKey.Method, cacheKey.URL)
+
+	// 맵 항목은 키 정렬 후 기록 — 삽입 순서가 결정론성을 깨지 않게.
+	writeSortedMap := func(m map[string][]string) {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			vs := append([]string(nil), m[k]...)
+			sort.Strings(vs)
+			writeField("q", k, strings.Join(vs, "\x00"))
+		}
+	}
+	writeSortedMap(cacheKey.QueryArgs)
+
+	hKeys := make([]string, 0, len(cacheKey.Headers))
+	for k := range cacheKey.Headers {
+		hKeys = append(hKeys, k)
+	}
+	sort.Strings(hKeys)
+	for _, k := range hKeys {
+		writeField("h", k, cacheKey.Headers[k])
+	}
+
+	b.WriteString("b:")
+	b.Write(cacheKey.Body)
+	b.WriteString("|ttl:")
+	b.WriteString(strconv.Itoa(cacheKey.CacheTTL))
+
+	hash := xxhash.Sum64([]byte(b.String()))
 	cacheKeyID := strconv.FormatUint(hash, 10)
 	logger.Debug().Msgf("cache key id %s is generated from: %v", cacheKeyID, cacheKey)
 	return cacheKeyID, nil

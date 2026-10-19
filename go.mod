@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/Kong/go-pdk v0.11.2
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/creasty/defaults v1.11.0
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/eko/gocache/lib/v4 v4.4.0
@@ -11,7 +12,6 @@ require (
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.9
 	github.com/eko/gocache/store/ristretto/v4 v4.3.8
 	github.com/go-playground/validator/v10 v10.30.5
-	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.12.1
@@ -30,7 +30,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
