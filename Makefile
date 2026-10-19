@@ -11,6 +11,7 @@
 
 GOARCH ?= $(shell uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)
 COMPOSE ?= docker compose
+export COMPOSE # stress_scenarios.sh가 같은 compose 인자(-p 등)를 따라가게
 
 .PHONY: build test e2e stress clean
 

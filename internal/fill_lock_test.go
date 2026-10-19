@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +27,7 @@ func Test_Redis_FillLock_SingleWinnerAmongConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if acquireFillLock(cm, key, 3*time.Second) {
+			if won, _ := acquireFillLock(cm, key, 3*time.Second); won {
 				wins <- i
 			}
 		}(i)
@@ -42,7 +43,9 @@ func Test_Redis_FillLock_LoserWaitsAndServesFilledValue(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "fill-lock-wait-key"
-	require.True(t, acquireFillLock(cm, key, 3*time.Second), "첫 획득자는 승자")
+	won, token1 := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won, "첫 획득자는 승자")
+	require.NotEmpty(t, token1, "실제 획득에는 소유 토큰이 따른다")
 
 	go func() {
 		time.Sleep(60 * time.Millisecond)
@@ -62,7 +65,8 @@ func Test_Redis_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "fill-lock-cap-key"
-	require.True(t, acquireFillLock(cm, key, 3*time.Second))
+	won, _ := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won)
 
 	start := time.Now()
 	got := waitForFill(marshal, key, 150*time.Millisecond)
@@ -84,9 +88,11 @@ func Test_Redis_FillLock_ReleasedAfterDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "fill-lock-release-key"
-	require.True(t, acquireFillLock(cm, key, 3*time.Second))
-	releaseFillLock(cm, key) // Response에서 fill 완료 후 해제
-	require.True(t, acquireFillLock(cm, key, 3*time.Second), "해제 뒤 재획득 가능")
+	won, token := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won)
+	releaseFillLockIfOwned(cm, key, token) // Response에서 fill 완료 후 해제
+	won2, _ := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won2, "해제 뒤 재획득 가능")
 }
 
 func Test_FillLock_Defaults(t *testing.T) {
@@ -104,7 +110,8 @@ func Test_Redis_FillLock_OrWait_Disabled(t *testing.T) {
 	cm, marshal, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
 
-	winner, filled := cfg.fillLockOrWait(cm, marshal, "orwait-disabled")
+	winner, filled, token := cfg.fillLockOrWait(cm, marshal, "orwait-disabled")
+	require.Empty(t, token, "비활성이면 소유 토큰 없음")
 	require.True(t, winner, "비활성이면 항상 승자(통과)")
 	require.Nil(t, filled)
 }
@@ -114,7 +121,7 @@ func Test_Redis_FillLock_OrWait_FreshKeyWinner(t *testing.T) {
 	cm, marshal, err := cfg.newCacheManager(10)
 	require.NoError(t, err)
 
-	winner, filled := cfg.fillLockOrWait(cm, marshal, "orwait-fresh")
+	winner, filled, _ := cfg.fillLockOrWait(cm, marshal, "orwait-fresh")
 	require.True(t, winner, "새 키의 첫 요청은 승자")
 	require.Nil(t, filled)
 }
@@ -126,7 +133,8 @@ func Test_Redis_FillLock_OrWait_LoserServesFilled(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "orwait-loser"
-	require.True(t, acquireFillLock(cm, key, 3*time.Second), "선점 승자")
+	wonP, _ := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, wonP, "선점 승자")
 
 	go func() {
 		time.Sleep(80 * time.Millisecond)
@@ -134,7 +142,7 @@ func Test_Redis_FillLock_OrWait_LoserServesFilled(t *testing.T) {
 		_ = marshal.Set(context.Background(), key, cv)
 	}()
 
-	winner, filled := cfg.fillLockOrWait(cm, marshal, key)
+	winner, filled, _ := cfg.fillLockOrWait(cm, marshal, key)
 	require.False(t, winner, "선점당한 요청은 패자")
 	require.NotNil(t, filled, "기한 안에 채워진 값을 돌려받는다(Access의 cached=filled 계약)")
 	require.Equal(t, []byte("filled"), filled.Body)
@@ -147,9 +155,10 @@ func Test_Redis_FillLock_OrWait_LoserTimeoutPasses(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "orwait-timeout"
-	require.True(t, acquireFillLock(cm, key, 3*time.Second), "아무도 채우지 않는 선점")
+	won, _ := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won, "아무도 채우지 않는 선점")
 
-	winner, filled := cfg.fillLockOrWait(cm, marshal, key)
+	winner, filled, _ := cfg.fillLockOrWait(cm, marshal, key)
 	require.False(t, winner)
 	require.Nil(t, filled, "기한 초과면 nil(통과 디그레이드)")
 }
@@ -161,9 +170,46 @@ func Test_Redis_FillLock_OrWait_DefaultTTLWhenZero(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "orwait-ttl0"
-	require.True(t, acquireFillLock(cm, key, convertRedisTimeout(cfg.FillLock.TTLMs, time.Millisecond)),
-		"TTLMs 0 → 기본 3000ms로 실제 승리")
+	won0, _ := acquireFillLock(cm, key, convertRedisTimeout(cfg.FillLock.TTLMs, time.Millisecond))
+	require.True(t, won0, "TTLMs 0 → 기본 3000ms로 실제 승리")
 
-	winner, _ := cfg.fillLockOrWait(cm, marshal, key)
+	winner, _, _ := cfg.fillLockOrWait(cm, marshal, key)
 	require.False(t, winner, "선점된 키는 패자 — 기본 TTL이 발화했음을 간접 확인")
+}
+
+// TTL 만료로 후속 승자가 락을 이어받은 뒤, 늦은 이전 승자의 해제가 남의 락을
+// 지우지 않는지(리뷰 #1) — 토큰 불일치면 삭제되지 않는다.
+func Test_Redis_FillLock_StaleTokenDoesNotDeleteSuccessor(t *testing.T) {
+	cfg := newRedisConfigForTest()
+	cm, _, err := cfg.newCacheManager(10)
+	require.NoError(t, err)
+
+	key := "fill-lock-stale-token"
+	wonA, tokenA := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, wonA)
+
+	// A의 리스 만료 + B의 재획득을 흉내: 락 값을 B의 토큰으로 덮어쓴다.
+	_, tokenB := acquireFillLock(cm, key+"-x", time.Second) // 토큰 생성만
+	require.NoError(t, cm.Set(context.Background(), fillLockKeyPrefix+key, tokenB,
+		lib_store.WithExpiration(3*time.Second)))
+
+	// 늦은 A의 해제 시도 — B의 락은 살아 있어야 한다.
+	releaseFillLockIfOwned(cm, key, tokenA)
+	v, err := cm.Get(context.Background(), fillLockKeyPrefix+key)
+	require.NoError(t, err)
+	require.Equal(t, tokenB, v, "후속 승자의 락이 유지되어야 한다")
+
+	// 진짜 소유자 B의 해제는 지운다.
+	releaseFillLockIfOwned(cm, key, tokenB)
+	v2, err := cm.Get(context.Background(), fillLockKeyPrefix+key)
+	require.Error(t, err, "소유자 해제 뒤 락은 없다")
+	require.Nil(t, v2)
+}
+
+// 빈 토큰(fail-open 통과)은 아무것도 하지 않는다.
+func Test_Redis_FillLock_EmptyTokenNoop(t *testing.T) {
+	cfg := newRedisConfigForTest()
+	cm, _, err := cfg.newCacheManager(10)
+	require.NoError(t, err)
+	require.NotPanics(t, func() { releaseFillLockIfOwned(cm, "whatever", "") })
 }

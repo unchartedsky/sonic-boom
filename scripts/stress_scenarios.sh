@@ -79,9 +79,17 @@ run_scenario() {
 }
 
 main() {
+	# 저동시 버스트는 게이트가 아니라 통과증이다 — C=1이면 lock≤2·90%≥0가
+	# 무조건 참이라 fill-lock이 깨져도 녹색이 된다.
+	if (( C < 3 )); then
+		echo "FAIL: 동시성 ${C}은(는) 단언이 무의미하다 — 3 이상을 지정하라" >&2
+		exit 1
+	fi
 	wait_for_kong "${BASE}"
-	# make stress가 저장소 루트에서 이 스크립트를 실행하므로 docker compose ps가 신뢰 가능하다.
-	UPSTREAM_ID=$(docker compose ps -q mock-upstream 2>/dev/null || true)
+	# make stress가 저장소 루트에서 이 스크립트를 실행하므로 compose 조회가 신뢰
+	# 가능하다. COMPOSE 오버라이드(-p 등)는 Makefile과 같은 값을 따라간다.
+	local compose="${COMPOSE:-docker compose}"
+	UPSTREAM_ID=$(${compose} ps -q mock-upstream 2>/dev/null || true)
 	if [[ -z "${UPSTREAM_ID}" ]]; then
 		echo "FAIL: mock-upstream 컨테이너를 찾을 수 없음 — make stress로 compose를 띄웠는지 확인" >&2
 		exit 1
@@ -107,7 +115,7 @@ main() {
 
 	# 단언 — 경계값은 1회 실측 기반(스탬피드 켬 1, 끔 200/200, warm 0/0)이므로
 	# 환경·타이밍에 따라 재조정이 필요할 수 있다. 90%는 동시성 비율로 계산해 -C와 무관하게 유지.
-	local lock_max=2 nolock_min=$((C * 90 / 100)) fail=0
+	local lock_max=2 nolock_min=$(((C * 90 + 99) / 100)) fail=0
 	echo
 	echo "== 단언 =="
 	if (( delta_lock <= lock_max )); then

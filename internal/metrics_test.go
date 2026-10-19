@@ -117,7 +117,9 @@ func Test_FillLock_DegradedMetric_UnsupportedStore(t *testing.T) {
 	cm, _, err := cfg.newCacheManager(5)
 	require.NoError(t, err)
 
-	require.True(t, acquireFillLock(cm, "degraded-unsupported", time.Second), "fail-open 통과")
+	won, token := acquireFillLock(cm, "degraded-unsupported", time.Second)
+	require.True(t, won, "fail-open 통과")
+	require.Empty(t, token, "fail-open에는 소유 토큰이 없다")
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(context.Background(), &rm))

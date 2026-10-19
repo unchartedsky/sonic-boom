@@ -440,9 +440,9 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		winner, filled := conf.fillLockOrWait(cm, marshal, cacheKeyID)
+		winner, filled, lockToken := conf.fillLockOrWait(cm, marshal, cacheKeyID)
 		if winner || filled == nil {
-			if err := conf.signalCacheReq(kong, CacheSignal{CacheKeyID: cacheKeyID, CacheTTL: cacheTTL, Winner: winner}); err != nil {
+			if err := conf.signalCacheReq(kong, CacheSignal{CacheKeyID: cacheKeyID, CacheTTL: cacheTTL, Winner: winner, LockToken: lockToken}); err != nil {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
 			}
 			return
@@ -791,7 +791,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	// 락을 TTLMs(기본 3s)마다 반복 남겨 후속 요청이 WaitMs씩 정체한다.
 	if cacheSignal.Winner && conf.FillLock.Enabled {
 		if lockCm, _, err := conf.newCacheManager(cacheSignal.CacheTTL); err == nil {
-			defer releaseFillLock(lockCm, cacheSignal.CacheKeyID)
+			defer releaseFillLockIfOwned(lockCm, cacheSignal.CacheKeyID, cacheSignal.LockToken)
 		}
 	}
 	logger.Debug().Msgf("cacheKeyID type is %s", reflect.TypeOf(cacheSignal))
