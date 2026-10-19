@@ -18,9 +18,10 @@ import (
 // OTel 미구성(compose 기본, OTEL_SDK_DISABLED=true)이면 no-op 계기라
 // Enabled()가 false — 기록 분기가 0비용 게이트가 된다(otel v1.40 안정화).
 const (
-	metricsScope      = "sonic-boom"
-	cacheRequestsName = "sonicboom_cache_requests"
-	cacheLookupName   = "sonicboom_cache_lookup_duration"
+	metricsScope         = "sonic-boom"
+	cacheRequestsName    = "sonicboom_cache_requests"
+	cacheLookupName      = "sonicboom_cache_lookup_duration"
+	fillLockDegradedName = "sonicboom_fill_lock_degraded"
 )
 
 func recordCacheStatus(strategy, status string) {
@@ -44,5 +45,19 @@ func recordCacheLookup(strategy string, d time.Duration) {
 	}
 	h.Record(context.Background(), float64(d.Nanoseconds())/1e6, metric.WithAttributes(
 		attribute.String("strategy", strategy),
+	))
+}
+
+// fill-lock fail-open 관측 — 잠금 없이 통과시킨 보호 상실을 reason 라벨
+// (unsupported/error 두 값으로 유한) 카운터에 남겨, redis 장애 중에도
+// 평범한 콜드 트래픽과 구분되게 한다.
+func recordFillLockDegraded(reason string) {
+	c, err := otel.Meter(metricsScope).Int64Counter(fillLockDegradedName,
+		metric.WithDescription("Fill-lock protection losses by reason"))
+	if err != nil || !c.Enabled(context.Background()) {
+		return
+	}
+	c.Add(context.Background(), 1, metric.WithAttributes(
+		attribute.String("reason", reason),
 	))
 }

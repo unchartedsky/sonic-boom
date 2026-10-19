@@ -69,3 +69,67 @@ func TestCacheMetrics_NoProviderIsNoop(t *testing.T) {
 	recordCacheStatus("redis", "Miss")
 	recordCacheLookup("redis", time.Millisecond)
 }
+
+// fill-lock fail-open 관측: 보호가 풀린 횟수가 reason 라벨(error/unsupported)로
+// 기록된다 — 장애 중 보호 상실과 평범한 콜드 트래픽을 구분하는 신호.
+func TestCacheMetrics_RecordFillLockDegraded(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() {
+		otel.SetMeterProvider(prev)
+		_ = reader.Shutdown(context.Background())
+	})
+
+	recordFillLockDegraded("error")
+	recordFillLockDegraded("unsupported")
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	counts := map[string]int64{} // "카운터이름|reason" -> 합
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if data, ok := m.Data.(metricdata.Sum[int64]); ok {
+				for _, dp := range data.DataPoints {
+					counts[m.Name+"|"+labelValue(dp.Attributes, "reason")] = dp.Value
+				}
+			}
+		}
+	}
+	require.EqualValues(t, 1, counts["sonicboom_fill_lock_degraded|error"])
+	require.EqualValues(t, 1, counts["sonicboom_fill_lock_degraded|unsupported"])
+}
+
+// 실경로 단언(서버 불필요): in-memory ristretto store는 SetIfNotExists를
+// 지원하지 않아 acquireFillLock이 fail-open하며, 이때 reason=unsupported
+// 카운터가 정확히 1 오른다.
+func Test_FillLock_DegradedMetric_UnsupportedStore(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() {
+		otel.SetMeterProvider(prev)
+		_ = reader.Shutdown(context.Background())
+	})
+
+	cfg := newInMemoryConfigForTest()
+	cm, _, err := cfg.newCacheManager(5)
+	require.NoError(t, err)
+
+	require.True(t, acquireFillLock(cm, "degraded-unsupported", time.Second), "fail-open 통과")
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	counts := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if data, ok := m.Data.(metricdata.Sum[int64]); ok {
+				for _, dp := range data.DataPoints {
+					counts[m.Name+"|"+labelValue(dp.Attributes, "reason")] = dp.Value
+				}
+			}
+		}
+	}
+	require.EqualValues(t, 1, counts["sonicboom_fill_lock_degraded|unsupported"])
+}

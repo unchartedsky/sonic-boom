@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"time"
 
@@ -20,6 +21,13 @@ func acquireFillLock(cm *cache.Cache[any], cacheKeyID string, ttl time.Duration)
 	set, err := cm.SetIfNotExists(context.Background(), fillLockKeyPrefix+cacheKeyID, "1",
 		lib_store.WithExpiration(ttl))
 	if err != nil {
+		// fail-open으로 보호가 풀린 사실을 메트릭에 남긴다 — 미지원 store는
+		// 구조적인 것, 그 외 오류는 일시 장애로 라벨을 나눈다.
+		reason := "error"
+		if errors.Is(err, lib_store.ErrNotSupported) {
+			reason = "unsupported"
+		}
+		recordFillLockDegraded(reason)
 		return true
 	}
 	return set
