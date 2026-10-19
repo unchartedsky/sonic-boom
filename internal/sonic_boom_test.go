@@ -354,6 +354,12 @@ func configDefault() *Config {
 		CacheVersion:         "",
 		Strategy:             "redis",
 
+		FillLock: FillLockConfig{
+			Enabled: true,
+			TTLMs:   3000,
+			WaitMs:  200,
+		},
+
 		InMemory: InMemoryConfig{
 			MaxCost:     1000000,
 			NumCounters: 1000000,

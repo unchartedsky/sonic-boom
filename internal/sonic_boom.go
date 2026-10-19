@@ -99,8 +99,17 @@ type Config struct {
 	RedisCluster         RedisClusterConfig `json:"redis_cluster" default:"{}"`
 	InMemory             InMemoryConfig     `json:"in_memory" default:"{}"`
 	LogConf              LogConfig          `json:"log" validate:"" default:"{}"`
+	FillLock             FillLockConfig     `json:"fill_lock" default:"{}"`
 
 	logger *Logger `validate:"-"`
+}
+
+// FillLockConfig 는 스탬피드 fill-lock 설정이다(로드맵 U3).
+// WaitMs가 0이면 패자는 기다리지 않고 바로 통과한다.
+type FillLockConfig struct {
+	Enabled bool `json:"enabled" default:"true"`
+	TTLMs   int  `json:"ttl_ms" validate:"gte=0" default:"3000"`
+	WaitMs  int  `json:"wait_ms" validate:"gte=0" default:"200"`
 }
 
 type Filter struct {
@@ -419,7 +428,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//_ = log.Err("SetHeader failed: ", err.Error())
 	}
 
-	_, marshal, err := conf.newCacheManager(cacheTTL)
+	cm, marshal, err := conf.newCacheManager(cacheTTL)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create cache manager")
 		return
@@ -447,15 +456,21 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		err = conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL})
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to signal cache request")
+		// 스탬피드 fill-lock: 승자(nil)는 프록시로 fill, 패자는 기한 안에
+		// 채워진 값을 받아 히트로 서빙하거나 통과한다.
+		if v := conf.fillLockOrWait(cm, marshal, cacheKeyID); v != nil {
+			cached = v
+		} else {
+			err = conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL})
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to signal cache request")
+				return
+			}
 			return
 		}
-		return
+	} else {
+		logger.Debug().Msg("Cache hit")
 	}
-
-	logger.Debug().Msg("Cache hit")
 
 	cacheValue := cached.(*CacheValue)
 	cacheSignal := CacheSignal{
@@ -835,7 +850,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
 
-	_, marshal, err := conf.newCacheManager(ttl)
+	cm, marshal, err := conf.newCacheManager(ttl)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create cache manager")
 		return
@@ -846,6 +861,9 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
+
+	// fill 완료 — fill-lock 대기자들을 즉시 풀어준다(TTL이 상한).
+	releaseFillLock(cm, cacheKeyID)
 	logger.Debug().Msgf("Cache set: %s", cacheKeyID)
 }
 
