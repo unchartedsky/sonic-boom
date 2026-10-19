@@ -8,7 +8,6 @@ import (
 
 	"github.com/Kong/go-pdk"
 	"github.com/cespare/xxhash/v2"
-	"github.com/go-playground/validator/v10"
 )
 
 type CacheKey struct {
@@ -141,8 +140,7 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 		CacheTTL:  cacheTTL,
 	}
 
-	validate := validator.New()
-	if errs := validate.Struct(cacheKey); errs != nil {
+	if errs := configValidator.Struct(cacheKey); errs != nil {
 		logger.Error().Err(errs).Msg("validation error")
 		return "", errs
 	}
