@@ -42,6 +42,11 @@ var (
 	ristrettoClients sync.Map // map[InMemoryConfig]*ristretto.Cache
 	cacheStores      sync.Map // map[InMemoryConfig]store.StoreInterface[any]
 
+	// redis 클라이언트는 프로세스 수명으로 공유한다. 매 요청 생성 시
+	// 다이얼·핸드셰이크가 요청마다 반복된다(실측 9.3배 지연, 2026-10-19).
+	redisClients        sync.Map // map[RedisConfig]*redis.Client
+	redisClusterClients sync.Map // map[redisClusterKey]*redis.ClusterClient
+
 	tracer      = otel.Tracer("sonic-boom")
 	otelEnabled = os.Getenv("OTEL_SDK_DISABLED") != "true"
 
@@ -170,46 +175,107 @@ func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
 	return time.Duration(timeout) * timeUnit
 }
 
+// redisClusterKey 는 RedisClusterConfig에서 비교 가능한 공유 키를 만든다.
+// Addrs []string은 맵 키로 쓸 수 없어 결합한다.
+type redisClusterKey struct {
+	addrs             string
+	username          string
+	password          string
+	poolSize          int
+	maxRetries        int
+	minRetryBackoffMs int
+	maxRetryBackoffMs int
+	dialTimeout       int
+	readTimeout       int
+	writeTimeout      int
+	poolTimeout       int
+	idleTimeout       int
+}
+
+func newRedisClusterKey(c RedisClusterConfig) redisClusterKey {
+	return redisClusterKey{
+		addrs:             strings.Join(c.Addrs, ","),
+		username:          c.Username,
+		password:          c.Password,
+		poolSize:          c.PoolSize,
+		maxRetries:        c.MaxRetries,
+		minRetryBackoffMs: c.MinRetryBackoffMs,
+		maxRetryBackoffMs: c.MaxRetryBackoffMs,
+		dialTimeout:       c.DialTimeout,
+		readTimeout:       c.ReadTimeout,
+		writeTimeout:      c.WriteTimeout,
+		poolTimeout:       c.PoolTimeout,
+		idleTimeout:       c.IdleTimeout,
+	}
+}
+
+func newRedisClientOptions(c RedisConfig) *redis.Options {
+	return &redis.Options{
+		Addr:            c.Host + ":" + strconv.Itoa(c.Port),
+		Username:        c.Username,
+		Password:        c.Password,
+		DB:              c.DBNumber,
+		PoolSize:        c.PoolSize,
+		MaxRetries:      c.MaxRetries,
+		MinRetryBackoff: convertRedisTimeout(c.MinRetryBackoffMs, time.Millisecond),
+		MaxRetryBackoff: convertRedisTimeout(c.MaxRetryBackoffMs, time.Millisecond),
+		DialTimeout:     convertRedisTimeout(c.DialTimeout, time.Second),
+		ReadTimeout:     convertRedisTimeout(c.ReadTimeout, time.Second),
+		WriteTimeout:    convertRedisTimeout(c.WriteTimeout, time.Second),
+		PoolTimeout:     convertRedisTimeout(c.PoolTimeout, time.Second),
+		ConnMaxIdleTime: convertRedisTimeout(c.IdleTimeout, time.Second),
+	}
+}
+
+func newRedisClusterOptions(c RedisClusterConfig) *redis.ClusterOptions {
+	return &redis.ClusterOptions{
+		Addrs:           c.Addrs,
+		Username:        c.Username,
+		Password:        c.Password,
+		PoolSize:        c.PoolSize,
+		MaxRetries:      c.MaxRetries,
+		MinRetryBackoff: convertRedisTimeout(c.MinRetryBackoffMs, time.Millisecond),
+		MaxRetryBackoff: convertRedisTimeout(c.MaxRetryBackoffMs, time.Millisecond),
+		DialTimeout:     convertRedisTimeout(c.DialTimeout, time.Second),
+		ReadTimeout:     convertRedisTimeout(c.ReadTimeout, time.Second),
+		WriteTimeout:    convertRedisTimeout(c.WriteTimeout, time.Second),
+		PoolTimeout:     convertRedisTimeout(c.PoolTimeout, time.Second),
+		ConnMaxIdleTime: convertRedisTimeout(c.IdleTimeout, time.Second),
+	}
+}
+
+// sharedRedisClient 는 설정값을 키로 프로세스 수명 클라이언트를 공유한다
+// (go-redis 문서: "Client is meant to be long-lived and shared").
+func sharedRedisClient(c RedisConfig) *redis.Client {
+	if v, ok := redisClients.Load(c); ok {
+		return v.(*redis.Client)
+	}
+	actual, _ := redisClients.LoadOrStore(c, redis.NewClient(newRedisClientOptions(c)))
+	return actual.(*redis.Client)
+}
+
+func sharedRedisClusterClient(c RedisClusterConfig) *redis.ClusterClient {
+	key := newRedisClusterKey(c)
+	if v, ok := redisClusterClients.Load(key); ok {
+		return v.(*redis.ClusterClient)
+	}
+	actual, _ := redisClusterClients.LoadOrStore(key, redis.NewClusterClient(newRedisClusterOptions(c)))
+	return actual.(*redis.ClusterClient)
+}
+
 func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Marshaler, error) {
 	switch conf.Strategy {
 	case "redis":
-		// Redis는 매번 새로운 인스턴스 생성
-		// go-redis 가 자체적으로 pooling 을 제공한다
-		redisClient := redis.NewClient(&redis.Options{
-			Addr:            conf.Redis.Host + ":" + strconv.Itoa(conf.Redis.Port),
-			Username:        conf.Redis.Username,
-			Password:        conf.Redis.Password,
-			DB:              conf.Redis.DBNumber,
-			PoolSize:        conf.Redis.PoolSize,
-			MaxRetries:      conf.Redis.MaxRetries,
-			MinRetryBackoff: convertRedisTimeout(conf.Redis.MinRetryBackoffMs, time.Millisecond),
-			MaxRetryBackoff: convertRedisTimeout(conf.Redis.MaxRetryBackoffMs, time.Millisecond),
-			DialTimeout:     convertRedisTimeout(conf.Redis.DialTimeout, time.Second),
-			ReadTimeout:     convertRedisTimeout(conf.Redis.ReadTimeout, time.Second),
-			WriteTimeout:    convertRedisTimeout(conf.Redis.WriteTimeout, time.Second),
-			PoolTimeout:     convertRedisTimeout(conf.Redis.PoolTimeout, time.Second),
-			ConnMaxIdleTime: convertRedisTimeout(conf.Redis.IdleTimeout, time.Second),
-		})
+		// 클라이언트는 공유, store는 요청마다 생성 — TTL이 store 옵션에 굽는다.
+		redisClient := sharedRedisClient(conf.Redis)
 		cacheStore := redis_store.NewRedis(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
 		cacheManager := cache.New[any](cacheStore)
 		marshal := marshaler.New(cacheManager)
 		return cacheManager, marshal, nil
 
 	case "redis-cluster":
-		redisClient := redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:           conf.RedisCluster.Addrs,
-			Username:        conf.RedisCluster.Username,
-			Password:        conf.RedisCluster.Password,
-			PoolSize:        conf.RedisCluster.PoolSize,
-			MaxRetries:      conf.RedisCluster.MaxRetries,
-			MinRetryBackoff: convertRedisTimeout(conf.RedisCluster.MinRetryBackoffMs, time.Millisecond),
-			MaxRetryBackoff: convertRedisTimeout(conf.RedisCluster.MaxRetryBackoffMs, time.Millisecond),
-			DialTimeout:     convertRedisTimeout(conf.RedisCluster.DialTimeout, time.Second),
-			ReadTimeout:     convertRedisTimeout(conf.RedisCluster.ReadTimeout, time.Second),
-			WriteTimeout:    convertRedisTimeout(conf.RedisCluster.WriteTimeout, time.Second),
-			PoolTimeout:     convertRedisTimeout(conf.RedisCluster.PoolTimeout, time.Second),
-			ConnMaxIdleTime: convertRedisTimeout(conf.RedisCluster.IdleTimeout, time.Second),
-		})
+		// 클라이언트는 공유, store는 요청마다 생성 — TTL이 store 옵션에 굽는다.
+		redisClient := sharedRedisClusterClient(conf.RedisCluster)
 		cacheStore := rediscluster_store.NewRedisCluster(redisClient, lib_store.WithExpiration(time.Duration(ttl)*time.Second))
 		cacheManager := cache.New[any](cacheStore)
 		marshal := marshaler.New(cacheManager)
