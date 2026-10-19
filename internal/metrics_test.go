@@ -32,7 +32,7 @@ func TestCacheMetrics_RecordStatusAndLookup(t *testing.T) {
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(context.Background(), &rm))
 
-	counts := map[string]int64{}      // "카운터이름|strategy|status" -> 합
+	counts := map[string]int64{}       // "카운터이름|strategy|status" -> 합
 	histSamples := map[string]uint64{} // "히스토그램이름|strategy" -> 샘플 수
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {

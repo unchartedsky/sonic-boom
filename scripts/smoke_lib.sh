@@ -14,6 +14,7 @@ VARY_ROUTE="${3:-${2}-vary}"
 BASE="${BASE_URL:-http://localhost:8000}"
 URL="${BASE}${ROUTE}/api/users?page=2"
 FIXDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../test/upstream" && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "${TMPD}"' EXIT
@@ -49,20 +50,7 @@ assert_eq() {
 	echo "  ${name}: OK"
 }
 
-wait_for_kong() {
-	# 프로브는 플러그인이 없는 /noplugins 라우트를 쓴다.
-	# 검증 대상 URL을 프로브하면 캐시이미 데워져 '첫 요청 Miss' 단언이 깨진다.
-	local probe="${BASE}/noplugins/api/users?page=probe"
-	local i
-	for i in $(seq 1 60); do
-		if curl -s -o /dev/null -m 2 "${probe}"; then
-			return 0
-		fi
-		sleep 1
-	done
-	echo "FAIL: [${STRATEGY}] ${BASE}에 60초 내 접근 불가 — docker compose 기동 상태를 확인하세요" >&2
-	exit 1
-}
+wait_for_kong "${BASE}" 2>/dev/null || exit 1
 
 # gzip 단언-suite. 인수: 기본 라우트(교차 오염·HEAD·POST), vary 라우트(키 분리).
 # 시나리오별 고유 쿼리스트링(page=gz*)을 쓴다 — 기존 단언의 page=2 키를
@@ -187,7 +175,7 @@ stale_suite() {
 
 main() {
 	echo "== ${STRATEGY} e2e =="
-	wait_for_kong
+	wait_for_kong "${BASE}"
 
 	# 0) cache_ttl 0 명시 라우트는 검증에서 거절 — Error+Bypass(AE5)
 	assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"

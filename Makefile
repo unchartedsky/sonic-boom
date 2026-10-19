@@ -26,21 +26,23 @@ test:
 	$(COMPOSE) up -d --wait redis cluster-init
 	$(COMPOSE) --profile test run --rm go-test
 
-e2e: build
+# clean compose 기동 — 시작 전 캐시를 비운다(첫 요청 Miss 단언의 전제).
+# .ONESHELL이라 레시피 안에서 전개되므로 EXIT trap이 이후 스크립트까지 덮는다.
+define compose_reset
 	set -euo pipefail
 	trap '$(COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
-	# 시작 전 캐시를 비운다 — 첫 요청 Miss 단언의 전제 조건
 	$(COMPOSE) down -v --remove-orphans
 	$(COMPOSE) up -d --build --wait
+endef
+
+e2e: build
+	$(compose_reset)
 	./scripts/smoke_in_memory.sh
 	./scripts/smoke_redis.sh
 	./scripts/smoke_rediscluster.sh
 
 stress: build
-	set -euo pipefail
-	trap '$(COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
-	$(COMPOSE) down -v --remove-orphans
-	$(COMPOSE) up -d --build --wait
+	$(compose_reset)
 	./scripts/stress_scenarios.sh
 
 clean:

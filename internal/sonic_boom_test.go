@@ -356,7 +356,7 @@ func configDefault() *Config {
 
 		FillLock: FillLockConfig{
 			Enabled: true,
-			TTLMs:   3000,
+			TTLMs:   defaultFillLockTTLMs,
 			WaitMs:  200,
 		},
 

@@ -42,8 +42,6 @@ var (
 	ristrettoClients sync.Map // map[InMemoryConfig]*ristretto.Cache
 	cacheStores      sync.Map // map[InMemoryConfig]store.StoreInterface[any]
 
-	// redis 클라이언트는 프로세스 수명으로 공유한다. 매 요청 생성 시
-	// 다이얼·핸드셰이크가 요청마다 반복된다(실측 9.3배 지연, 2026-10-19).
 	redisClients        sync.Map // map[RedisConfig]*redis.Client
 	redisClusterClients sync.Map // map[redisClusterKey]*redis.ClusterClient
 
@@ -104,8 +102,10 @@ type Config struct {
 	logger *Logger `validate:"-"`
 }
 
-// FillLockConfig 는 스탬피드 fill-lock 설정이다(로드맵 U3).
-// WaitMs가 0이면 패자는 기다리지 않고 바로 통과한다.
+// defaultFillLockTTLMs 는 FillLockConfig.TTLMs 태그 기본값과 같은 값이다.
+// 태그는 문자열 리터럴이라 상수를 참조할 수 없어 두 곳에 둔다.
+const defaultFillLockTTLMs = 3000
+
 type FillLockConfig struct {
 	Enabled bool `json:"enabled" default:"true"`
 	TTLMs   int  `json:"ttl_ms" validate:"gte=0" default:"3000"`
@@ -235,14 +235,12 @@ func newRedisClientOptions(c RedisConfig) *redis.Options {
 		ConnMaxIdleTime: convertRedisTimeout(c.IdleTimeout, time.Second),
 	}
 
-	// CSC(실험, 로드맵 U4): RESP3 필요. DB 0 전용 제한은 라이브러리가
-	// 경고와 함께 처리한다(이 클라이언트는 standalone 전용).
 	if c.ClientSideCache.Enabled {
 		opts.Protocol = 3
 		opts.ClientSideCacheConfig = &redis.ClientSideCacheConfig{
 			MaxEntries:     c.ClientSideCache.MaxEntries,
 			MaxMemoryBytes: int64(c.ClientSideCache.MaxMemoryBytes),
-			MaxStaleness:   time.Duration(c.ClientSideCache.MaxStalenessMs) * time.Millisecond,
+			MaxStaleness:   convertRedisTimeout(c.ClientSideCache.MaxStalenessMs, time.Millisecond),
 		}
 	}
 	return opts
@@ -397,6 +395,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if err := conf.checkConfig(); err != nil {
 		logger.Error().Err(err).Msg("Config check failed; bypassing")
+		recordCacheStatus(conf.Strategy, "Bypass")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 		}
@@ -411,6 +410,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	cacheable, cacheTTL := conf.cacheableRequest(kong)
 	if !cacheable {
+		recordCacheStatus(conf.Strategy, "Bypass")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 			return
@@ -468,18 +468,14 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		// 스탬피드 fill-lock: 승자(nil)는 프록시로 fill, 패자는 기한 안에
-		// 채워진 값을 받아 히트로 서빙하거나 통과한다.
-		if v := conf.fillLockOrWait(cm, marshal, cacheKeyID); v != nil {
-			cached = v
-		} else {
-			err = conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL})
-			if err != nil {
+		winner, filled := conf.fillLockOrWait(cm, marshal, cacheKeyID)
+		if winner || filled == nil {
+			if err := conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL}); err != nil {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
-				return
 			}
 			return
 		}
+		cached = filled
 	} else {
 		logger.Debug().Msg("Cache hit")
 	}
@@ -506,6 +502,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if conf.CacheControl {
 		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
+		recordCacheStatus(conf.Strategy, "Bypass")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 		}
@@ -815,6 +812,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	// ProxyCacheHandler:header_filter
 	if !conf.cacheableResponse(kong) {
+		recordCacheStatus(conf.Strategy, "Bypass")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
@@ -874,8 +872,9 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		return
 	}
 
-	// fill 완료 — fill-lock 대기자들을 즉시 풀어준다(TTL이 상한).
-	releaseFillLock(cm, cacheKeyID)
+	if conf.FillLock.Enabled {
+		releaseFillLock(cm, cacheKeyID)
+	}
 	logger.Debug().Msgf("Cache set: %s", cacheKeyID)
 }
 

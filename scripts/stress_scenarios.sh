@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# 동접 스트레스 시나리오(로드맵 U5). 사용자 요청: 스탬피드는 시나리오로,
-# CSC 효용은 실측으로 검증한다.
-#
+# 동접 스트레스 시나리오 — 스탬피드(fill-lock on/off)와 CSC on/off 실측.
 # 사용법: ./scripts/stress_scenarios.sh [동시성=200] [요청수=2000]
 # 전제: make stress(또는 make e2e 후 compose 유지)로 Kong이 떠 있어야 한다.
 # 지표: 업스트림(mock-upstream nginx) 호출 수, p50/p95/p99, rps.
@@ -11,15 +9,7 @@ C="${1:-200}"
 N="${2:-2000}"
 BASE="${BASE_URL:-http://localhost:8000}"
 
-wait_for_kong() {
-	local probe="${BASE}/noplugins/api/users?page=probe"
-	for _ in $(seq 1 60); do
-		curl -s -o /dev/null -m 2 "${probe}" && return 0
-		sleep 1
-	done
-	echo "FAIL: ${BASE}에 60초 내 접근 불가" >&2
-	exit 1
-}
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # nginx access log는 stdout으로 흐른다 — docker logs 줄 수로 업스트림 호출 수.
 upstream_count() {
@@ -51,7 +41,7 @@ run_scenario() {
 	local out before after times sorted
 
 	if [[ "${mode}" == "warm" ]]; then
-		ab -q -k -n 100 -c 10 "${url}" >/dev/null 2>&1 # 예열
+		ab -q -k -n 100 -c 10 "${url}" >/dev/null 2>&1
 	fi
 
 	before=$(upstream_count)
@@ -75,7 +65,6 @@ run_scenario() {
 		p50=$(pct_from_times "${sorted}" 50)
 		p95=$(pct_from_times "${sorted}" 95)
 		p99=$(pct_from_times "${sorted}" 99)
-		rps=$(awk -v n="${n}" 'END {if ($1 > 0) printf "%.1f", n/$1}' <<<"${times}" | head -1)
 		rps=$(awk -v n="${n}" -v mx="$(tail -1 <<<"${sorted}")" 'BEGIN {if (mx>0) printf "%.1f", n/mx}')
 	fi
 
@@ -84,18 +73,15 @@ run_scenario() {
 }
 
 main() {
-	wait_for_kong
+	wait_for_kong "${BASE}"
 	echo "== 동접 스트레스 시나리오 (동시성=${C}, keepalive) =="
 	echo
 	echo "| 시나리오 | 동시성 | 업스트림 호출 | p50(ms) | p95(ms) | p99(ms) | rps |"
 	echo "|---|---|---|---|---|---|---|"
 
-	# 1) 스탬피드: 느린 대용량 응답(약 9초 fill 창)에 전원 동시 버스트 —
-	#    락 끔(대조)은 전원 업스트림, 락 켬(wait 15s)은 1명만 fill.
 	run_scenario "스탬피드, fill-lock 끔" /redis-nolock /api/big stampede cold "${C}" 12
 	run_scenario "스탬피드, fill-lock 켬" /redis-stampede /api/big stampede2 cold "${C}" 12
 
-	# 2) CSC 효용: 같은 조건(db 0)에서 CSC off vs on, 예열 후 warm 측정
 	run_scenario "warm, CSC off (db 0)" /redis-nocsc /api/users csc warm "${N}" 1
 	run_scenario "warm, CSC on  (db 0)" /redis-csc /api/users csc2 warm "${N}" 1
 

@@ -71,6 +71,11 @@ func Test_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 	require.Nil(t, got, "아무도 채우지 않으면 nil(통과)을 돌려준다")
 	require.GreaterOrEqual(t, elapsed, 140*time.Millisecond, "기한까지 기다린다")
 	require.Less(t, elapsed, 2*time.Second, "기한을 크게 넘기지 않는다")
+
+	// WaitMs=0은 기다림 없이 즉시 통과한다.
+	t0 := time.Now()
+	require.Nil(t, waitForFill(marshal, "fill-lock-zero-wait", 0))
+	require.Less(t, time.Since(t0), 20*time.Millisecond)
 }
 
 func Test_FillLock_ReleasedAfterDelete(t *testing.T) {

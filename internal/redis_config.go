@@ -25,8 +25,6 @@ type RedisConfig struct {
 	PoolTimeout  int `json:"pool_timeout" validate:"gte=-1" default:"5"`
 	IdleTimeout  int `json:"idle_timeout" validate:"gte=-1" default:"1"`
 
-	// ClientSideCache 는 값 구조체다 — RedisConfig가 클라이언트 공유 맵의
-	// 키로 쓰여 비교 가능해야 하기 때문.
 	ClientSideCache ClientSideCacheConfig `json:"client_side_cache" default:"{}"`
 }
 
