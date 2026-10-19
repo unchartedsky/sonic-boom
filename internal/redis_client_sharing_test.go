@@ -49,13 +49,13 @@ func Test_RedisCluster_ClientSharedPerConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// 호출 사이에 로드를 끼워 '매 호출 Store 덮어쓰기' 회귀를 잡는다.
-	v1, ok1 := redisClusterClients.Load(newRedisClusterKey(cfg.RedisCluster))
+	v1, ok1 := redisClusterClients.Load(redisClusterKeyOf(cfg.RedisCluster))
 	require.True(t, ok1, "첫 호출 뒤 공유 맵에 있어야 한다")
 
 	_, _, err = cfg.newCacheManager(5)
 	require.NoError(t, err)
 
-	v2, ok2 := redisClusterClients.Load(newRedisClusterKey(cfg.RedisCluster))
+	v2, ok2 := redisClusterClients.Load(redisClusterKeyOf(cfg.RedisCluster))
 	require.True(t, ok2)
 	require.Same(t, v1, v2, "같은 RedisClusterConfig는 같은 클러스터 클라이언트여야 한다")
 
@@ -64,7 +64,7 @@ func Test_RedisCluster_ClientSharedPerConfig(t *testing.T) {
 	other.RedisCluster.Addrs = []string{"redis-cluster:7000", "172.30.0.12:7000"}
 	_, _, err = other.newCacheManager(5)
 	require.NoError(t, err)
-	v3, ok3 := redisClusterClients.Load(newRedisClusterKey(other.RedisCluster))
+	v3, ok3 := redisClusterClients.Load(redisClusterKeyOf(other.RedisCluster))
 	require.True(t, ok3)
 	require.NotSame(t, v1, v3)
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -58,6 +60,14 @@ func Test_Redis_ClientSideCache_FreshAfterExternalWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	key := "csc-fresh-key"
+
+	// 0) 실동작 관문: newCacheManager가 돌려준 공유 클라이언트가 RESP3+CSC
+	// 옵션을 실제로 물고 있는지(옵션 와이어링이 생성 경로와 끊기면 여기서 잡힌다).
+	v, ok := redisClients.Load(cscCfg.Redis)
+	require.True(t, ok, "CSC 설정 클라이언트가 공유 맵에 있어야 한다")
+	cli := v.(*redis.Client)
+	require.Equal(t, 3, cli.Options().Protocol, "공유 클라이언트가 RESP3로 물고 있어야")
+	require.NotNil(t, cli.Options().ClientSideCacheConfig, "공유 클라이언트에 CSC 설정이 있어야")
 
 	// 1) CSC 경로로 값 저장·조회(왕복 투명성)
 	cv1 := &CacheValue{Status: 200, Headers: map[string][]string{}, Body: []byte("v1"), TTL: 60, Version: "1.0"}

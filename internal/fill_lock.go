@@ -31,17 +31,23 @@ func releaseFillLock(cm *cache.Cache[any], cacheKeyID string) {
 
 // waitForFill 은 패자가 기한 안에 값이 채워지기를 기다린다. 재폴링 간격에
 // 지터를 섞어 대기자들이 같은 박자로 redis를 두드리지 않게 한다.
+// waitCtx 가 Get 자체에도 시한을 건다 — redis가 느리면 루프 조건과 무관하게
+// 한 폴링이 Dial/Read/PoolTimeout 전부를 태워버리기 때문.
 func waitForFill(m *marshaler.Marshaler, cacheKeyID string, wait time.Duration) *CacheValue {
-	deadline := time.Now().Add(wait)
-	for time.Now().Before(deadline) {
-		time.Sleep(fillLockPollInterval())
-		if v, err := m.Get(context.Background(), cacheKeyID, new(CacheValue)); err == nil && v != nil {
+	waitCtx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	for {
+		select {
+		case <-waitCtx.Done():
+			return nil
+		case <-time.After(fillLockPollInterval()):
+		}
+		if v, err := m.Get(waitCtx, cacheKeyID, new(CacheValue)); err == nil && v != nil {
 			if cv, ok := v.(*CacheValue); ok {
 				return cv
 			}
 		}
 	}
-	return nil
 }
 
 func fillLockPollInterval() time.Duration {
@@ -60,6 +66,14 @@ func (conf *Config) fillLockOrWait(cm *cache.Cache[any], m *marshaler.Marshaler,
 		lockTTL = defaultFillLockTTLMs * time.Millisecond
 	}
 	if acquireFillLock(cm, cacheKeyID, lockTTL) {
+		// 더블체크: 이 요청의 미스 조회와 락 획득 사이에 다른 요청이 값을 채웠을
+		// 수 있다. 그 값으로 서빙하고 락을 돌려준다(이중 fill 방지).
+		if v, err := m.Get(context.Background(), cacheKeyID, new(CacheValue)); err == nil && v != nil {
+			if cv, ok := v.(*CacheValue); ok {
+				releaseFillLock(cm, cacheKeyID)
+				return false, cv
+			}
+		}
 		return true, nil
 	}
 	return false, waitForFill(m, cacheKeyID, convertRedisTimeout(conf.FillLock.WaitMs, time.Millisecond))

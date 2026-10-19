@@ -50,7 +50,6 @@ assert_eq() {
 	echo "  ${name}: OK"
 }
 
-wait_for_kong "${BASE}" 2>/dev/null || exit 1
 
 # gzip 단언-suite. 인수: 기본 라우트(교차 오염·HEAD·POST), vary 라우트(키 분리).
 # 시나리오별 고유 쿼리스트링(page=gz*)을 쓴다 — 기존 단언의 page=2 키를

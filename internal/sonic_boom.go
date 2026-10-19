@@ -43,7 +43,7 @@ var (
 	cacheStores      sync.Map // map[InMemoryConfig]store.StoreInterface[any]
 
 	redisClients        sync.Map // map[RedisConfig]*redis.Client
-	redisClusterClients sync.Map // map[redisClusterKey]*redis.ClusterClient
+	redisClusterClients sync.Map // map[string]*redis.ClusterClient (key: redisClusterKeyOf)
 
 	tracer      = otel.Tracer("sonic-boom")
 	otelEnabled = os.Getenv("OTEL_SDK_DISABLED") != "true"
@@ -184,38 +184,12 @@ func convertRedisTimeout(timeout int, timeUnit time.Duration) time.Duration {
 	return time.Duration(timeout) * timeUnit
 }
 
-// redisClusterKey 는 RedisClusterConfig에서 비교 가능한 공유 키를 만든다.
-// Addrs []string은 맵 키로 쓸 수 없어 결합한다.
-type redisClusterKey struct {
-	addrs             string
-	username          string
-	password          string
-	poolSize          int
-	maxRetries        int
-	minRetryBackoffMs int
-	maxRetryBackoffMs int
-	dialTimeout       int
-	readTimeout       int
-	writeTimeout      int
-	poolTimeout       int
-	idleTimeout       int
-}
-
-func newRedisClusterKey(c RedisClusterConfig) redisClusterKey {
-	return redisClusterKey{
-		addrs:             strings.Join(c.Addrs, ","),
-		username:          c.Username,
-		password:          c.Password,
-		poolSize:          c.PoolSize,
-		maxRetries:        c.MaxRetries,
-		minRetryBackoffMs: c.MinRetryBackoffMs,
-		maxRetryBackoffMs: c.MaxRetryBackoffMs,
-		dialTimeout:       c.DialTimeout,
-		readTimeout:       c.ReadTimeout,
-		writeTimeout:      c.WriteTimeout,
-		poolTimeout:       c.PoolTimeout,
-		idleTimeout:       c.IdleTimeout,
-	}
+// redisClusterKeyOf 는 RedisClusterConfig 전체를 문자열로 직렬화해 공유 맵
+// 키로 쓴다. 구조체 필드를 손으로 복제하면 나중에 필드가 하나 빠져 서로 다른
+// 설정이 같은 클라이언트를 조용히 공유하는 드리프트가 생긴다 — 전체 직렬화는
+// 그 여지를 없앤다(전 필드 string/int/[]string이라 결정론적).
+func redisClusterKeyOf(c RedisClusterConfig) string {
+	return fmt.Sprintf("%+v", c)
 }
 
 func newRedisClientOptions(c RedisConfig) *redis.Options {
@@ -274,7 +248,7 @@ func sharedRedisClient(c RedisConfig) *redis.Client {
 }
 
 func sharedRedisClusterClient(c RedisClusterConfig) *redis.ClusterClient {
-	key := newRedisClusterKey(c)
+	key := redisClusterKeyOf(c)
 	if v, ok := redisClusterClients.Load(key); ok {
 		return v.(*redis.ClusterClient)
 	}
@@ -395,8 +369,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if err := conf.checkConfig(); err != nil {
 		logger.Error().Err(err).Msg("Config check failed; bypassing")
-		recordCacheStatus(conf.Strategy, "Bypass")
-		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+		if err := conf.setCacheStatus(kong, "Bypass", logger); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 		}
 		return
@@ -410,8 +383,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	cacheable, cacheTTL := conf.cacheableRequest(kong)
 	if !cacheable {
-		recordCacheStatus(conf.Strategy, "Bypass")
-		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+		if err := conf.setCacheStatus(kong, "Bypass", logger); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 			return
 		}
@@ -470,7 +442,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 		winner, filled := conf.fillLockOrWait(cm, marshal, cacheKeyID)
 		if winner || filled == nil {
-			if err := conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL}); err != nil {
+			if err := conf.signalCacheReq(kong, CacheSignal{CacheKeyID: cacheKeyID, CacheTTL: cacheTTL, Winner: winner}); err != nil {
 				logger.Error().Err(err).Msg("Failed to signal cache request")
 			}
 			return
@@ -502,8 +474,7 @@ func (conf *Config) Access(kong *pdk.PDK) {
 
 	if conf.CacheControl {
 		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
-		recordCacheStatus(conf.Strategy, "Bypass")
-		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+		if err := conf.setCacheStatus(kong, "Bypass", logger); err != nil {
 			logger.Error().Err(err).Msg("SetHeader failed")
 		}
 		return
@@ -704,6 +675,13 @@ func (conf *Config) checkConfig() error {
 	return validate.Struct(conf)
 }
 
+// setCacheStatus 는 X-Cache-Status 헤더와 판정 카운터를 한 곳에서 짝지어
+// 세팅한다. 다음 상태 경로가 이 짝을 복제해 카운터만 빠뜨리는 것을 막는다.
+func (conf *Config) setCacheStatus(kong *pdk.PDK, status string, logger *Logger) error {
+	recordCacheStatus(conf.Strategy, status)
+	return kong.Response.SetHeader("X-Cache-Status", status)
+}
+
 func (conf *Config) signalCacheReq(kong *pdk.PDK, signal CacheSignal) error {
 	return conf.signalCacheReqWithStatus(kong, signal, "")
 }
@@ -807,12 +785,21 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		logger.Debug().Msg("No cached object found")
 		return
 	}
+
+	// fill-lock 승자는 이 요청의 모든 출구(캐시 불가 응답·본문 초과·읽기 오류·
+	// Set 실패)에서 락을 풀어준다 — 해제가 Set 성공에만 매달리면 5xx 응답이
+	// 락을 TTLMs(기본 3s)마다 반복 남겨 후속 요청이 WaitMs씩 정체한다.
+	if cacheSignal.Winner && conf.FillLock.Enabled {
+		if lockCm, _, err := conf.newCacheManager(cacheSignal.CacheTTL); err == nil {
+			defer releaseFillLock(lockCm, cacheSignal.CacheKeyID)
+		}
+	}
 	logger.Debug().Msgf("cacheKeyID type is %s", reflect.TypeOf(cacheSignal))
 	logger.Debug().Msgf("cacheKeyID is found: %v", cacheSignal)
 
-	// ProxyCacheHandler:header_filter
+	// ProxyCacheHandler:header_filter — 이 요청의 카운터는 Access에서 이미
+	// 기록됐다(Miss/Bypass). 여기선 최종 헤더만 바꾼다(#10 이중 계산 방지).
 	if !conf.cacheableResponse(kong) {
-		recordCacheStatus(conf.Strategy, "Bypass")
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
@@ -860,7 +847,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
 
-	cm, marshal, err := conf.newCacheManager(ttl)
+	_, marshal, err := conf.newCacheManager(ttl)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create cache manager")
 		return
@@ -872,9 +859,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 		return
 	}
 
-	if conf.FillLock.Enabled {
-		releaseFillLock(cm, cacheKeyID)
-	}
 	logger.Debug().Msgf("Cache set: %s", cacheKeyID)
 }
 
