@@ -22,7 +22,7 @@ ctx 핸드오프라 클라이언트가 직접 호출하는 경로가 아니며, 
 ```bash
 make test   # compose 백엔드(redis, redis-cluster) 기동 → go test ./... -race 실행 → 정리
 make e2e    # 플러그인 빌드 → compose 전체 clean 기동(down -v) → 세 전략 스모크 → 정리
-make stress # 동접 스트레스 시나리오 — 스탬피드(fill-lock on/off)·CSC on/off 실측
+make stress # 동접 스트레스 시나리오 — 스탬피드(fill-lock on/off)·CSC on/off 실측 + 단언(기대 미달 시 exit 1)
 make build  # build.sh 위임, bin/linux-${GOARCH}/sonic-boom 크로스컴파일
 ```
 
@@ -86,6 +86,10 @@ gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxi
   compose redis가 근거리라 이득이 작게 나오며, redis RTT가 큰 환경일수록 벌어진다.
 - **도구 주의(실측)**: ab는 같은 키 동시 버스트를 순차적으로 풀어 스탬피드를
   만들지 못한다(3@3에도 업스트림 1). 버스트는 xargs -P curl, warm 처리량은 ab.
+- **자동 단언**: 락 켬 ≤ 2, 락 끔 ≥ 동시성 90%, warm 업스트림 0 — 하나라도
+  미달이면 exit 1. 경계값은 200 동시 실측(2026-10-19) 기반이라 타이밍 여유가 좁다;
+  반복 FAIL이면 실측을 다시 보고 경계를 조정한다. 업스트림 집계는
+  `docker compose ps -q mock-upstream`으로 컨테이너를 찾는다(프로젝트명 무관).
 
 ## 알려진 특성
 
