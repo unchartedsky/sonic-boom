@@ -219,7 +219,7 @@ func newRedisClusterKey(c RedisClusterConfig) redisClusterKey {
 }
 
 func newRedisClientOptions(c RedisConfig) *redis.Options {
-	return &redis.Options{
+	opts := &redis.Options{
 		Addr:            c.Host + ":" + strconv.Itoa(c.Port),
 		Username:        c.Username,
 		Password:        c.Password,
@@ -234,6 +234,18 @@ func newRedisClientOptions(c RedisConfig) *redis.Options {
 		PoolTimeout:     convertRedisTimeout(c.PoolTimeout, time.Second),
 		ConnMaxIdleTime: convertRedisTimeout(c.IdleTimeout, time.Second),
 	}
+
+	// CSC(실험, 로드맵 U4): RESP3 필요. DB 0 전용 제한은 라이브러리가
+	// 경고와 함께 처리한다(이 클라이언트는 standalone 전용).
+	if c.ClientSideCache.Enabled {
+		opts.Protocol = 3
+		opts.ClientSideCacheConfig = &redis.ClientSideCacheConfig{
+			MaxEntries:     c.ClientSideCache.MaxEntries,
+			MaxMemoryBytes: int64(c.ClientSideCache.MaxMemoryBytes),
+			MaxStaleness:   time.Duration(c.ClientSideCache.MaxStalenessMs) * time.Millisecond,
+		}
+	}
+	return opts
 }
 
 func newRedisClusterOptions(c RedisClusterConfig) *redis.ClusterOptions {
