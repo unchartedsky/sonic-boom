@@ -271,6 +271,8 @@ func panicGuard(kong *pdk.PDK) func() {
 }
 
 func (conf *Config) Access(kong *pdk.PDK) {
+	defer panicGuard(kong)()
+
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
 
@@ -659,7 +661,7 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 }
 
 func (conf *Config) Response(kong *pdk.PDK) {
-	defer panicGuard(kong)
+	defer panicGuard(kong)()
 
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple

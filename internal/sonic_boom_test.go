@@ -331,6 +331,16 @@ func TestConfig_checkConfig(t *testing.T) {
 	}
 }
 
+// panicGuard가 패닉을 실제로 회복하는지 검증 — 클로저 반환형이므로
+// defer panicGuard(kong)() 형태(반환된 클로저 호출)여야 recover가 실행된다.
+// 괄호 없는 defer panicGuard(kong) 형태로 퇴행하면 패닉이 전파돼 이 테스트가 죽는다.
+func Test_panicGuard_Recovers(t *testing.T) {
+	func() {
+		defer panicGuard(nil)()
+		panic("boom")
+	}()
+}
+
 func configDefault() *Config {
 	return &Config{
 		ResponseCodes:        []int{200, 301, 404},
