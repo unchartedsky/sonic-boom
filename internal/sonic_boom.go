@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
-	"github.com/umisama/go-regexpcache"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -121,6 +121,11 @@ type Filter struct {
 type Rule struct {
 	Header string `json:"header" validate:"" default:""`
 	Regexp string `json:"regexp" validate:"required"`
+
+	// re 는 New()에서 한 번 컴파일한 정규식이다 — 요청 핫패스는 이것의
+	// MatchString만 호출한다(regexpcache의 전역 락 제거). 패턴은 설정이
+	// 바뀌기 전엔 불변이라 "캐시"라는 개념 자체가 불필요하다.
+	re *regexp.Regexp
 }
 
 func (r *Rule) pathRule() bool {
@@ -156,6 +161,23 @@ func (conf *Config) cacheVersion() string {
 	return "2-" + Version
 }
 
+// compileFilterRegexps 는 모든 필터 규칙의 정규식을 설정 시점에 한 번
+// 컴파일한다. 잘못된 패턴은 요청 도달 시점 panic이 아니라 여기서 위치를
+// 알려주는 오류로 실패한다(fail-fast).
+func (conf *Config) compileFilterRegexps() error {
+	for i := range conf.Filters {
+		for j := range conf.Filters[i].Rules {
+			rule := &conf.Filters[i].Rules[j]
+			re, err := regexp.Compile(rule.Regexp)
+			if err != nil {
+				return fmt.Errorf("filters[%d].rules[%d]: invalid regexp %q: %w", i, j, rule.Regexp, err)
+			}
+			rule.re = re
+		}
+	}
+	return nil
+}
+
 // See https://github.com/Kong/go-pdk/issues/78
 func (conf *Config) Init() {
 	// logger는 매 Config 인스턴스마다 개별적으로 초기화
@@ -166,6 +188,11 @@ func (conf *Config) Init() {
 
 	if conf.CacheVersion == "" {
 		conf.CacheVersion = conf.cacheVersion()
+	}
+
+	if err := conf.compileFilterRegexps(); err != nil {
+		conf.logger.Error().Err(err).Msg("Invalid regexp in filters")
+		panic(err)
 	}
 }
 
@@ -589,8 +616,7 @@ func (conf *Config) cacheablePath(kong *pdk.PDK, rule Rule) bool {
 		return false
 	}
 
-	r := regexpcache.MustCompile(rule.Regexp)
-	if r.MatchString(path) {
+	if rule.re.MatchString(path) {
 		conf.logger.Debug().Msgf("Path %s is cacheable", path)
 		return true
 	}
@@ -615,8 +641,7 @@ func (conf *Config) cacheableHeader(kong *pdk.PDK, rule Rule) bool {
 		return false
 	}
 
-	r := regexpcache.MustCompile(rule.Regexp)
-	if r.MatchString(v) {
+	if rule.re.MatchString(v) {
 		return true
 	}
 

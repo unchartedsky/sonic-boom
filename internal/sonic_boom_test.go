@@ -2,6 +2,7 @@ package internal
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/Kong/go-pdk/response"
 	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func defaultLogger() *Logger {
@@ -562,6 +564,7 @@ func TestConfig_cacheablePath(t *testing.T) {
 				LogConf:              tt.fields.LogConf,
 				logger:               tt.fields.logger,
 			}
+			require.NoError(t, tt.args.rule.compileForTest(), "테스트 규칙 정규식 컴파일")
 			assert.Equalf(t, tt.want, conf.cacheablePath(tt.args.kong, tt.args.rule), "cacheablePath(%v, %v)", tt.args.kong, tt.args.rule)
 		})
 	}
@@ -631,6 +634,7 @@ func TestConfig_cacheableHeader(t *testing.T) {
 				LogConf:              tt.fields.LogConf,
 				logger:               tt.fields.logger,
 			}
+			require.NoError(t, tt.args.rule.compileForTest(), "테스트 규칙 정규식 컴파일")
 			assert.Equalf(t, tt.want, conf.cacheableHeader(tt.args.kong, tt.args.rule), "cacheableHeader(%v, %v)", tt.args.kong, tt.args.rule)
 		})
 	}
@@ -938,6 +942,7 @@ func TestConfig_filtered(t *testing.T) {
 				LogConf:              tt.fields.LogConf,
 				logger:               tt.fields.logger,
 			}
+			require.NoError(t, conf.compileFilterRegexps(), "테스트 필터의 정규식 컴파일")
 			got, got1 := conf.filtered(tt.args.kong)
 			assert.Equalf(t, tt.want, got, "filtered(%v)", tt.args.kong)
 			assert.Equalf(t, tt.want1, got1, "filtered(%v)", tt.args.kong)
@@ -1038,4 +1043,52 @@ func TestConfig_cacheableRequest(t *testing.T) {
 			assert.Equalf(t, tt.want1, got1, "cacheableRequest(%v)", tt.args.kong)
 		})
 	}
+}
+
+// 정규식은 설정 시점에 컴파일된다(계획 U2, KD2) — 잘못된 패턴은 요청 도달
+// 시점 panic이 아니라 New() 오류로 일찍 실패한다(fail-fast).
+func TestNew_InvalidRegexpFails(t *testing.T) {
+	cfg := configDefault()
+	cfg.Filters = []Filter{
+		{
+			Name: "path filter with broken regexp",
+			Rules: []Rule{
+				{Regexp: ".*page=\\(.*\\).*"}, // 유효
+				{Regexp: "(unbalanced"},       // 컴파일 실패
+			},
+		},
+	}
+	err := cfg.compileFilterRegexps()
+	require.Error(t, err, "잘못된 정규식은 컴파일 단계에서 실패한다")
+	require.Contains(t, err.Error(), "filters[0].rules[1]", "오류가 규칙 위치를 알려준다")
+}
+
+func TestNew_ValidRegexpsCompile(t *testing.T) {
+	cfg := configDefault()
+	cfg.Filters = []Filter{
+		{
+			Name: "ok",
+			Rules: []Rule{
+				{Regexp: ".*page=\\(.*\\).*"},
+				{Header: "Authorization", Regexp: ".*dXNlcm5hbWU6.*"},
+			},
+		},
+	}
+	require.NoError(t, cfg.compileFilterRegexps())
+	for _, f := range cfg.Filters {
+		for _, r := range f.Rules {
+			require.NotNil(t, r.re, "유효 패턴은 컴파일돼 Rule에 저장된다")
+		}
+	}
+}
+
+// compileForTest 는 규칙 리터럴로 만든 테스트 Case에 컴파일된 정규식을 채운다
+// — 프로덕션에서는 New()의 compileFilterRegexps가 이 자리를 대신한다.
+func (r *Rule) compileForTest() error {
+	re, err := regexp.Compile(r.Regexp)
+	if err != nil {
+		return err
+	}
+	r.re = re
+	return nil
 }
