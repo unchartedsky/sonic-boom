@@ -44,7 +44,39 @@ var (
 
 	tracer      = otel.Tracer("sonic-boom")
 	otelEnabled = os.Getenv("OTEL_SDK_DISABLED") != "true"
+
+	// 검증기는 프로세스당 1회 구성한다(validator.New()+등록이 실비용이고 인스턴스는
+	// 동시 사용 안전). 라우트별 검증은 매 요청 정확히 수행한다.
+	configValidator = newConfigValidator()
 )
+
+func newConfigValidator() *validator.Validate {
+	validate := validator.New()
+
+	// Redis 설정 validation을 위한 custom validation 추가
+	validate.RegisterStructValidation(func(sl validator.StructLevel) {
+		config := sl.Current().Interface().(Config)
+
+		// Redis strategy일 때 Redis 설정 검증
+		if config.Strategy == "redis" {
+			if config.Redis.Host == "" {
+				sl.ReportError(config.Redis.Host, "Host", "Redis.Host", "required", "")
+			}
+			if config.Redis.Port <= 0 || config.Redis.Port > 65536 {
+				sl.ReportError(config.Redis.Port, "Port", "Redis.Port", "range", "")
+			}
+		}
+
+		// Redis Cluster strategy일 때 RedisCluster 설정 검증
+		if config.Strategy == "redis-cluster" {
+			if len(config.RedisCluster.Addrs) == 0 {
+				sl.ReportError(config.RedisCluster.Addrs, "Addrs", "RedisCluster.Addrs", "required", "")
+			}
+		}
+	}, Config{})
+
+	return validate
+}
 
 // TODO cache control 은 나중에 구현하자
 type Config struct {
@@ -53,7 +85,7 @@ type Config struct {
 	ContentTypes         []string           `json:"content_type" validate:"required" default:"[\"text/plain\", \"application/json\", \"application/json; charset=utf-8\"]"`
 	VaryHeaders          []string           `json:"vary_headers" validate:"required" default:"[]"`
 	Filters              []Filter           `json:"filters" validate:"required" default:"[]"`
-	CacheTTL             int                `json:"cache_ttl" validate:"gte=0" default:"0"`
+	CacheTTL             int                `json:"cache_ttl" validate:"gt=0" default:"300"`
 	CacheControl         bool               `json:"cache_control" validate:"" default:"false"`
 	CacheableBodyMaxSize int                `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
 	CacheVersion         string             `json:"cache_version" validate:"" default:""`
@@ -113,12 +145,8 @@ func (conf *Config) Init() {
 	// logger는 매 Config 인스턴스마다 개별적으로 초기화
 	conf.logger = NewLogger(&conf.LogConf)
 
-	// 나머지 설정들 초기화
-	for _, filter := range conf.Filters {
-		if defaults.CanUpdate(filter.CacheTTL) {
-			filter.CacheTTL = conf.CacheTTL
-		}
-	}
+	// 필터 TTL 상속은 요청마다 요청 시점에 filtered()에서 해석한다(go-pdk #78 동시성 모델에서
+	// 설정 슬라이스를 변이하면 데이터 경합이 된다).
 
 	if conf.CacheVersion == "" {
 		conf.CacheVersion = conf.cacheVersion()
@@ -227,9 +255,10 @@ func (conf *Config) newCacheManager(ttl int) (*cache.Cache[any], *marshaler.Mars
 	}
 }
 
-func (conf *Config) Access(kong *pdk.PDK) {
-	// From https://github.com/lampnick/kong-rate-limiting-golang/blob/master/custom-rate-limiting.go
-	defer func() {
+// panicGuard는 페이즈 핸들러 공통 패닉 방어 클로저를 반환한다 — go-pdk 서버에 recover가
+// 없어 핸들러 패닉이 프로세스 사망으로 이어진다. recover()는 지연 함수 본문에서 직접 호출돼야 한다.
+func panicGuard(kong *pdk.PDK) func() {
+	return func() {
 		if err := recover(); err != nil {
 			log.Printf("kong plugin panic at: %+v, err: %+v", time.Now(), err)
 			if kong == nil {
@@ -238,7 +267,11 @@ func (conf *Config) Access(kong *pdk.PDK) {
 				_ = kong.Log.Err(fmt.Sprint(err))
 			}
 		}
-	}()
+	}
+}
+
+func (conf *Config) Access(kong *pdk.PDK) {
+	defer panicGuard(kong)()
 
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
@@ -275,12 +308,15 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		}
 	}
 
-	if conf.isDebug() {
-		if err := conf.checkConfig(); err != nil {
-			logger.Fatal().Err(err).Msg("Config check failed")
-			return
+	if err := conf.checkConfig(); err != nil {
+		logger.Error().Err(err).Msg("Config check failed; bypassing")
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+			logger.Error().Err(err).Msg("SetHeader failed")
 		}
+		return
+	}
 
+	if conf.isDebug() {
 		if err := kong.Response.SetHeader("X-sonic-boom-Plugin-Version", Version); err != nil {
 			logger.Warn().Err(err).Msg("failed to set header")
 		}
@@ -343,12 +379,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		//	return kong.response.exit(ngx.HTTP_GATEWAY_TIMEOUT)
 		//end
 
-		if err := SetPlugin(kong, "reqBody", rawBody); err != nil {
-			logger.Error().Err(err).Msg("Failed to set reqBody in plugin context")
-			return
-		}
-		logger.Debug().Msg("Request body is saved to Context")
-
 		err = conf.signalCacheReq(kong, CacheSignal{cacheKeyID, cacheTTL})
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to signal cache request")
@@ -375,43 +405,32 @@ func (conf *Config) Access(kong *pdk.PDK) {
 			logger.Error().Err(err).Msg("Failed to signal cache request")
 			return
 		}
+		// 낡은 값을 서빙하지 않고 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+		return
 	}
 
-	//-- figure out if the client will accept our cache value
 	if conf.CacheControl {
-		logger.Fatal().Msg("Cache control is enabled but not implemented yet")
-		return
-	} else {
-		//-- don't serve stale data; res may be stored for up to `conf.storage_ttl` secs
-		now := time.Now()
-		secs := now.Unix()
-
-		if (secs - cacheValue.Timestamp) > int64(conf.CacheTTL) {
-			if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
-				logger.Error().Err(err).Msg("Failed to signal cache request")
-				return
-			}
+		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+			logger.Error().Err(err).Msg("SetHeader failed")
 		}
+		return
+	}
+
+	// don't serve stale data; res may be stored for up to `conf.storage_ttl` secs
+	now := time.Now()
+	secs := now.Unix()
+
+	if (secs - cacheValue.Timestamp) > int64(cacheTTL) {
+		if err := conf.signalCacheReqWithStatus(kong, cacheSignal, "Refresh"); err != nil {
+			logger.Error().Err(err).Msg("Failed to signal cache request")
+			return
+		}
+		// 만료된 값은 재검증을 위해 upstream으로 통과한다(원본 Lua `return signal_cache_req(...)` 시맨틱).
+		return
 	}
 
 	// we have cache data yo!
-	// expose response data for logging plugins
-	// 그래서 어디에 쓴다는 건지... https://github.com/search?q=org%3AKong+proxy_cache_hit&type=code
-	responseData := ""
-	//responseData = {
-	//	res = res,
-	//	req = {
-	//		body = res.req_body,
-	//	},
-	//	server_addr = ngx.var.server_addr,
-	//}
-
-	if responseData != "" {
-		if err := kong.Ctx.SetShared("proxy_cache_hit", responseData); err != nil {
-			logger.Error().Err(err).Msg("Failed to set shared context")
-			return
-		}
-	}
 	if err := kong.Nginx.SetCtx("KONG_PROXIED", true); err != nil {
 		logger.Error().Err(err).Msg("Failed to set nginx context `KONG_PROXIED`")
 		return
@@ -428,8 +447,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		}
 	}
 
-	now := time.Now()
-	secs := now.Unix()
 	age := strconv.FormatInt(secs-cacheValue.Timestamp, 10)
 	cacheValue.Headers["Age"] = []string{age}
 	cacheValue.Headers["X-Cache-Status"] = []string{"Hit"}
@@ -467,7 +484,11 @@ func (conf *Config) filtered(kong *pdk.PDK) (bool, int) {
 
 	for _, filter := range filters {
 		if conf.rulesFiltered(kong, filter.Rules) {
-			return true, filter.CacheTTL
+			ttl := filter.CacheTTL
+			if ttl == 0 {
+				ttl = conf.CacheTTL
+			}
+			return true, ttl
 		}
 	}
 
@@ -585,29 +606,7 @@ func headerToDelete(header string) bool {
 }
 
 func (conf *Config) checkConfig() error {
-	validate := validator.New()
-
-	// Redis 설정 validation을 위한 custom validation 추가
-	validate.RegisterStructValidation(func(sl validator.StructLevel) {
-		config := sl.Current().Interface().(Config)
-
-		// Redis strategy일 때 Redis 설정 검증
-		if config.Strategy == "redis" {
-			if config.Redis.Host == "" {
-				sl.ReportError(config.Redis.Host, "Host", "Redis.Host", "required", "")
-			}
-			if config.Redis.Port <= 0 || config.Redis.Port > 65536 {
-				sl.ReportError(config.Redis.Port, "Port", "Redis.Port", "range", "")
-			}
-		}
-
-		// Redis Cluster strategy일 때 RedisCluster 설정 검증
-		if config.Strategy == "redis-cluster" {
-			if len(config.RedisCluster.Addrs) == 0 {
-				sl.ReportError(config.RedisCluster.Addrs, "Addrs", "RedisCluster.Addrs", "required", "")
-			}
-		}
-	}, Config{})
+	validate := configValidator
 
 	return validate.Struct(conf)
 }
@@ -662,6 +661,8 @@ func serviceResponseRawBody(kong *pdk.PDK) ([]byte, error) {
 }
 
 func (conf *Config) Response(kong *pdk.PDK) {
+	defer panicGuard(kong)()
+
 	conf.Init()
 	defer conf.Close() //nolint directives: gosimple
 
@@ -743,51 +744,35 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 	if rawBody == nil {
 		logger.Debug().Msg("Response body is empty")
-	} else {
-		logger.Debug().Msgf("Response body length is %d", len(rawBody))
-		if conf.CacheableBodyMaxSize > 0 && len(rawBody) > conf.CacheableBodyMaxSize {
-			logger.Debug().Msgf("Body length is bigger than allowed body_max_size: %d", conf.CacheableBodyMaxSize)
-			return
-		}
+	}
+	if conf.CacheableBodyMaxSize > 0 && len(rawBody) > conf.CacheableBodyMaxSize {
+		logger.Debug().Msgf("Body length is bigger than allowed body_max_size: %d", conf.CacheableBodyMaxSize)
+		return
 	}
 
 	now := time.Now()
 	secs := now.Unix()
 
-	//	proxy_cache.res_headers = resp_get_headers(0, true)
-	//	proxy_cache.res_ttl = conf.cache_control and resource_ttl(cc) or conf.cache_ttl
-	_, err = GetPluginAny(kong, "reqBody")
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to get reqBody from plugin context")
-		return
-	}
-
+	ttl := cacheSignal.CacheTTL
 	cacheValue := &CacheValue{
 		Status:    httpStatus,
 		Headers:   headers,
 		Body:      rawBody,
 		BodyLen:   len(rawBody),
 		Timestamp: secs,
-		TTL:       int64(conf.CacheTTL),
+		TTL:       int64(ttl),
 		Version:   conf.CacheVersion,
-		//ReqBody: reqBody.([]byte),
-	}
-	validate := validator.New()
-	if err := validate.Struct(conf); err != nil {
-		logger.Error().Err(err).Msg("Cache value validation failed")
-		//validationErrors := err.(validator.ValidationErrors)
-		return
 	}
 	logger.Debug().Msgf("cacheValue: %+v", cacheValue)
 
-	_, marshal, err := conf.newCacheManager(int(cacheValue.TTL))
+	_, marshal, err := conf.newCacheManager(ttl)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create cache manager")
 		return
 	}
 
 	cacheKeyID := cacheSignal.CacheKeyID
-	if err := marshal.Set(context.Background(), cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(cacheValue.TTL)*time.Second)); err != nil {
+	if err := marshal.Set(context.Background(), cacheKeyID, cacheValue, lib_store.WithExpiration(time.Duration(ttl)*time.Second)); err != nil {
 		logger.Error().Err(err).Msg("Cache set failed")
 		return
 	}
@@ -851,5 +836,5 @@ func (conf *Config) cacheableResponseContentType(kong *pdk.PDK) bool {
 	//	return false
 	//end
 
-	return true
+	return false
 }

@@ -47,6 +47,11 @@ go build -o sonic-boom .
 - **특징**: 자동 샤딩, 고가용성
 - **설정**: `strategy: redis-cluster`
 
+### 캐시 가능성 규칙
+- `filters`의 필터별 `cache_ttl`이 실제 만료에 적용된다. 필터 TTL을 0으로 두거나 생략하면 전역 `cache_ttl`을 **상속**한다(즉시 만료 필터는 만들 수 없다).
+- `content_type`은 대소문자 무시 정확 매치다. 파라미터 변형(`application/json;charset=utf-8` 등)도 목록에 명시해야 캐시된다.
+- 설정 검증은 운영에서도 상시 실행되며, 실패 시 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
+
 ## 설정 예시
 
 [config_v1.yml](./config_v1.yml)을 참고하십시오(선언형 설정). [config_v2.yml](./config_v2.yml)은 reqres.in 시절의 미사용 레거시다.
@@ -70,7 +75,7 @@ config:
         - "application/json; charset=utf-8"
     vary_headers:
         - Authorization
-    cache_ttl: 15                   # 캐시할 엔티티의 TTL 값
+    cache_ttl: 15                   # 캐시할 엔티티의 TTL 값. 기본 300. 0은 거절된다(Redis 영구 키 방지)
     cacheable_body_max_size: 100000 # 캐시 고려할 최대 허용 Body 길이
     strategy: redis                 # 캐시 방식
     redis:

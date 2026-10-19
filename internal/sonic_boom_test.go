@@ -190,10 +190,7 @@ func TestConfig_cacheableResponseContentType(t *testing.T) {
 		{name: "설정된 content-type과 일치", contentTypes: []string{"application/json", "text/plain"}, contentType: "application/json", want: true},
 		{name: "대소문자 무관 일치", contentTypes: []string{"application/json"}, contentType: "Application/JSON", want: true},
 		{name: "content-type 없으면 false", contentTypes: []string{"application/json"}, contentType: "", want: false},
-		// 현재 동작 문서화: 매치에 실패해도 비어있지 않으면 true를 반환한다
-		// (cacheableResponseContentType의 루프 후 return true). 설정 목록이 실질적으로
-		// 무시되는 결함이라 별도 fix 커밋에서 다룬다.
-		{name: "미일치 content-type도 현재는 true", contentTypes: []string{"application/json"}, contentType: "text/xml", want: true},
+		{name: "미일치 content-type은 캐시하지 않는다", contentTypes: []string{"application/json"}, contentType: "text/xml", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -285,6 +282,13 @@ func TestConfig_checkConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "CacheTTL 0 거절(영구 키 방지)",
+			mutate: func(c *Config) {
+				c.CacheTTL = 0
+			},
+			wantErr: true,
+		},
+		{
 			name: "알 수 없는 전략",
 			mutate: func(c *Config) {
 				c.Strategy = "bogus"
@@ -327,6 +331,16 @@ func TestConfig_checkConfig(t *testing.T) {
 	}
 }
 
+// panicGuard가 패닉을 실제로 회복하는지 검증 — 클로저 반환형이므로
+// defer panicGuard(kong)() 형태(반환된 클로저 호출)여야 recover가 실행된다.
+// 괄호 없는 defer panicGuard(kong) 형태로 퇴행하면 패닉이 전파돼 이 테스트가 죽는다.
+func Test_panicGuard_Recovers(t *testing.T) {
+	func() {
+		defer panicGuard(nil)()
+		panic("boom")
+	}()
+}
+
 func configDefault() *Config {
 	return &Config{
 		ResponseCodes:        []int{200, 301, 404},
@@ -334,7 +348,7 @@ func configDefault() *Config {
 		ContentTypes:         []string{"text/plain", "application/json", "application/json; charset=utf-8"},
 		VaryHeaders:          []string{},
 		Filters:              []Filter{},
-		CacheTTL:             0,
+		CacheTTL:             300,
 		CacheControl:         false,
 		CacheableBodyMaxSize: 0,
 		CacheVersion:         "",
@@ -642,6 +656,33 @@ func TestConfig_filtered(t *testing.T) {
 		want   bool
 		want1  int
 	}{
+		{
+			name: "unset filter TTL inherits global cache_ttl",
+			fields: fields{
+				logger: defaultLogger(),
+				Filters: []Filter{
+					{
+						Name: "Test",
+						Rules: []Rule{
+							{
+								Regexp: ".*ref.*",
+							},
+						},
+					},
+				},
+				CacheTTL: 15,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_path_with_query", Ret: bridge.WrapString("/login/goodluck?ref=wayback")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  true,
+			want1: 15,
+		},
 		{
 			name: "test with empty rules",
 			fields: fields{

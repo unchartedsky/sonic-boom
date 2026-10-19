@@ -140,7 +140,6 @@ func Test_InMemory_Marshal_Unmarshal_CacheValue(t *testing.T) {
 		Timestamp: time.Now().Unix(),
 		TTL:       5,
 		Version:   "1.0",
-		ReqBody:   []byte{},
 	}
 
 	key := "marshal-key"

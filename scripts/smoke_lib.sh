@@ -164,9 +164,42 @@ enc_suite() {
 	echo "  ${enc} suite: OK"
 }
 
+# stale 재검증(AE2): cache_ttl(라우트 기본 15초) 경과 후에는 캐시에서 응답하지 않는다
+# (upstream 재검증 통과), 그 응답이 재저장돼 다음 요청이 Hit가 된다.
+# 저장 만료와 freshness가 같은 TTL이라 만료 후엔 저장소 소멸이 먼저 — Miss로 관측된다.
+# Refresh 라벨은 저장 만료 직전 근사 창에서만 경쟁적으로 도달해 안정 단언이 될 수 없다.
+# 수정 전 회귀: 만료 값이 Hit 라벨로 그대로 서빙됐다.
+stale_suite() {
+	local route="$1"
+	local stale_url="${BASE}${route}/api/users?page=st1"
+	local ttl="${STALE_TTL_SECS:-16}"
+
+	assert_status Miss "$(status_of "$(curl_h "${stale_url}")")" "stale 첫 요청"
+	assert_status Hit "$(status_of "$(curl_h "${stale_url}")")" "stale 데우기"
+
+	echo "  stale: TTL 경과 대기(${ttl}s)..."
+	sleep "${ttl}"
+
+	assert_status Miss "$(status_of "$(curl_h "${stale_url}")")" "stale 만료 후 재검증(upstream 통과)"
+	assert_status Hit "$(status_of "$(curl_h "${stale_url}")")" "stale 재저장 확인"
+	echo "  stale suite: OK"
+}
+
 main() {
 	echo "== ${STRATEGY} e2e =="
 	wait_for_kong
+
+	# 0) cache_ttl 0 명시 라우트는 검증에서 거절 — Error+Bypass(AE5)
+	assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
+
+	# 0-1) cache_control 라우트는 프로세스를 죽이지 않고 Bypass(AE4).
+	# cache_control 분기는 히트 뒤에만 도달해 첫 요청은 Miss(저장 발생).
+	# 목업의 정확 매칭 location(200+application/json)을 써야 content_type
+	# 게이팅(폴스루 수정 후)과도 정합한다.
+	local cc_url="${BASE}/cache-control/enc/deflate/api/users?page=ae4"
+	assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 첫 요청(Miss)"
+	assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 이후 요청(Bypass)"
+	assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 3회째(Bypass)"
 
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 	assert_status Miss "$(status_of "$(curl_h "${URL}")")" "첫 요청"
@@ -191,7 +224,10 @@ main() {
 	enc_suite "${ROUTE}" "${VARY_ROUTE}" deflate
 	enc_suite "${ROUTE}" "${VARY_ROUTE}" br
 
-	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary, gzip, deflate, br 통과"
+	# 7) stale 재검증(만료 값 재서빙 회귀 방지)
+	stale_suite "${ROUTE}"
+
+	echo "OK: [${STRATEGY}] Miss→Hit, Bypass, vary, gzip, deflate, br, stale 통과"
 }
 
 main
