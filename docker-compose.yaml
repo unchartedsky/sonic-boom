@@ -84,6 +84,7 @@ services:
     # image: ghcr.io/unchartedsky/sonic-boom:sha-01f9cc1
     # image: kong:3.9.0-ubuntu
     build: .
+    cpus: 2.0  # 벤치 공정 조건(U8): kong-lua와 동일 고정
     environment:
       # Kong Configuration
       - KONG_DATABASE=off
@@ -135,6 +136,7 @@ services:
   # 않는다. ';;'는 기본 package.path 폴스루.
   kong-lua:
     image: kong:3.9.4-ubuntu
+    cpus: 2.0  # 벤치 공정 조건(U8): Go kong과 동일 고정
     profiles: ["lua"]
     environment:
       - KONG_DATABASE=off
@@ -145,15 +147,15 @@ services:
       - KONG_LOG_LEVEL=debug
       # RE2→PCRE 전환 완화: 백트래킹 상한(R4 명시 차이 3호)
       - KONG_NGINX_HTTP_LUA_REGEX_MATCH_LIMIT=10000
-      # in-memory 저장소 + 클러스터 슬롯 잠금(dict 2개는 env 반복이 안 되어 kong.conf로)
-      # 
+      # shared dict 2개(in-memory 저장소+클러스터 슬롯 잠금)는 include 파일로 주입
+      - KONG_NGINX_HTTP_INCLUDE=/kong/extra-nginx.conf
     ports:
       - '8010:8000'
     restart: on-failure
     volumes:
       - ./config_lua.yml:/kong/config.yml
       - ./lua:/kong-lua:ro
-      - ./conf/kong-lua.conf:/etc/kong/kong.conf:ro
+      - ./conf/kong-lua-extra.conf:/kong/extra-nginx.conf:ro
     depends_on:
       mock-upstream:
         condition: service_started
