@@ -46,7 +46,8 @@ e2e: build
 # kong-lua(sonic-boom-lua) e2e — 이미지 빌드·profile lua 기동·전략 3종 스모크.
 # 재실행 멱등은 각 스모크가 스스로 캐시를 비운다(shdict 재기동/FLUSH).
 e2e-lua:
-	$(COMPOSE) --profile lua up -d --build --wait
+	# 서비스 명시 — 무지정 up은 Go kong(바이너리 필요)까지 띄운다. Lua 스택만.
+	$(COMPOSE) --profile lua up -d --build --wait kong-lua mock-upstream redis cluster-init
 	curl -fsS 'http://localhost:8010/selfcheck/x' >/dev/null
 	./scripts/smoke_lua_in_memory.sh
 	./scripts/smoke_lua_redis.sh
