@@ -1,0 +1,21 @@
+_format_version: "1.1"
+# kong-lua 전용 선언형 설정 — config_v1.yml(Go판)과 같은 목업 업스트림을 가리킨다.
+# 라우트 prefix는 /lua-* 로 Go 라우트와 충돌하지 않게 한다.
+services:
+  - host: mock-upstream
+    name: example-lua
+    port: 80
+    protocol: http
+    routes:
+      # 플러그인 없는 프로브 — wait_for·가동 확인용(스모크의 noplugins 관례)
+      - name: route-lua-probe
+        paths:
+          - /lua-probe
+        strip_path: true
+      - name: route-lua-in-memory
+        paths:
+          - /lua-in-memory
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config: {}

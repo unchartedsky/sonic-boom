@@ -129,6 +129,34 @@ services:
       cluster-init:
         condition: service_healthy
 
+  # sonic-boom의 Lua 포팅(kong-lua-plugin 계획). Go판 kong(8000)과 백엔드를 공유하고
+  # profile lua로 격리 — make e2e의 up/down이 Lua 개발 상태에 영향받지 않는다.
+  # ./lua는 Kong 기본 Lua 트리(/usr/local/share/lua/5.1) 밖에 마운트해 번들을 섀도잉하지
+  # 않는다. ';;'는 기본 package.path 폴스루.
+  kong-lua:
+    image: kong:3.9.4-ubuntu
+    profiles: ["lua"]
+    environment:
+      - KONG_DATABASE=off
+      - KONG_DECLARATIVE_CONFIG=/kong/config.yml
+      - KONG_PLUGINS=bundled,sonic-boom-lua
+      - KONG_LUA_PACKAGE_PATH=/kong-lua/?.lua;;
+      - KONG_PROXY_LISTEN=0.0.0.0:8000
+      - KONG_LOG_LEVEL=debug
+    ports:
+      - '8010:8000'
+    restart: on-failure
+    volumes:
+      - ./config_lua.yml:/kong/config.yml
+      - ./lua:/kong-lua:ro
+    depends_on:
+      mock-upstream:
+        condition: service_started
+      redis:
+        condition: service_started
+      cluster-init:
+        condition: service_healthy
+
   # go test 러너(make test). compose 네트워크 안에서 실행해
   # 맥/리눅스/CI가 같은 방식으로 redis·cluster에 접근하게 한다.
   # profiles로 평소 up -d에는 뜨지 않는다.
