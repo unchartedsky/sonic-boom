@@ -16,10 +16,20 @@ services:
         paths:
           - /lua-in-memory
         strip_path: true
+      # 필터 매치 실패 → Bypass 검증용: 플러그인 필터(아래)는 "api/users"를 요구하는데
+      # 이 라우트는 strip 후 /never/users라 매치하지 않는다.
+      - name: route-lua-nomatch
+        paths:
+          - /lua-nomatch
+        strip_path: true
 
     plugins:
       - name: sonic-boom-lua
-        config: {}
+        config:
+          filters:
+            - name: gate
+              rules:
+                - regexp: "api/users"
 
   # 코어 자기검증(골든 벡터·필터·엔트리 왕복) — Nginx 런타임에서만 돈다.
   - host: mock-upstream
