@@ -85,6 +85,14 @@ services:
     # image: kong:3.9.0-ubuntu
     build: .
     cpus: 2.0  # 벤치 공정 조건(U8): kong-lua와 동일 고정
+    # 베이스 이미지 헬스체크에는 start_period가 없어 동시 콜드 부팅 시
+    # 20초 만에 unhealthy 판정된다(CI parity 잡 실측) — 부팅 유예를 준다.
+    healthcheck:
+      test: ["CMD-SHELL", "kong health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     environment:
       # Kong Configuration
       - KONG_DATABASE=off
@@ -140,6 +148,12 @@ services:
       dockerfile: Dockerfile.kong-lua
     cpus: 2.0  # 벤치 공정 조건(U8): Go kong과 동일 고정
     profiles: ["lua"]
+    healthcheck:
+      test: ["CMD-SHELL", "kong health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     environment:
       - KONG_DATABASE=off
       - KONG_DECLARATIVE_CONFIG=/kong/config.yml

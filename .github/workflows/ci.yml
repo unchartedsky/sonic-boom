@@ -89,3 +89,11 @@ jobs:
           docker compose --profile lua up -d --build --wait
           ./scripts/parity_replay.sh
           docker compose --profile lua down -v --remove-orphans
+
+      # compose --wait 실패 시 원인이 로그에 안 남는다(패리티 잡 1차 실패 실측) — 실패 진단 덤프
+      - name: Dump compose diagnostics
+        if: failure()
+        run: |
+          docker compose --profile lua ps -a || true
+          docker compose logs kong kong-lua --tail 100 || true
+          docker inspect sonic-boom-kong-1 sonic-boom-kong-lua-1 --format '{{.Name}} {{json .State.Health}}' || true
