@@ -84,7 +84,12 @@ jobs:
       - name: Build Go plugin binary
         run: make build GOARCH=amd64
 
+      # GOARCH는 make 커맨드라인 변수로는 별도 스텝의 compose에 전달되지 않는다.
+      # 미설정이면 compose가 ./bin/linux-arm64(존재하지 않음→빈 dir 자동 생성)를
+      # /kong/go-plugins에 마운트해 이미지의 바이너리를 가려 pluginserver가 죽는다.
       - name: Run parity replay (Go vs Lua)
+        env:
+          GOARCH: amd64
         run: |
           docker compose --profile lua up -d --build --wait
           ./scripts/parity_replay.sh
