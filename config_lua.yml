@@ -1,35 +1,126 @@
 _format_version: "1.1"
-# kong-lua 전용 선언형 설정 — config_v1.yml(Go판)과 같은 목업 업스트림을 가리킨다.
-# 라우트 prefix는 /lua-* 로 Go 라우트와 충돌하지 않게 한다.
+# kong-lua 전용 선언형 설정 — config_v1.yml(Go판)의 in-memory 서비스들을 미러링.
+# 차이: ttl-zero·cache-control 라우트 없음(Lua는 스키마 거부 — SKIP_SCHEMA_ASSERT),
+# log·in_memory 필드 없음(Lua 스키마 미선언), 검증 고정 라우트(nomatch·ctgate·maxsize·setcookie) 추가.
 services:
   - host: mock-upstream
-    name: example-lua
+    name: example
     port: 80
     protocol: http
     routes:
-      # 플러그인 없는 프로브 — wait_for·가동 확인용(스모크의 noplugins 관례)
+      # wait_for_kong·본문 참조 프로브(플러그인 없음)
+      - name: route-noplugins
+        paths:
+          - /noplugins
+        strip_path: true
       - name: route-lua-probe
         paths:
           - /lua-probe
         strip_path: true
+
+  - host: mock-upstream
+    name: example-lua-in-memory
+    port: 80
+    protocol: http
+    routes:
       - name: route-lua-in-memory
         paths:
           - /lua-in-memory
         strip_path: true
-      # 필터 매치 실패 → Bypass 검증용: 플러그인 필터(아래)는 "api/users"를 요구하는데
-      # 이 라우트는 strip 후 /never/users라 매치하지 않는다.
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: in-memory
+
+  - host: mock-upstream
+    name: example-lua-in-memory-vary
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-in-memory-vary
+        paths:
+          - /lua-in-memory-vary
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization, Accept-Encoding]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: in-memory
+
+  # 아래 넷은 U4 시나리오 고정용 검증 라우트(Go config에 대응 없음)
+  - host: mock-upstream
+    name: example-lua-nomatch
+    port: 80
+    protocol: http
+    routes:
       - name: route-lua-nomatch
         paths:
           - /lua-nomatch
         strip_path: true
-
     plugins:
       - name: sonic-boom-lua
         config:
+          strategy: in-memory
           filters:
-            - name: gate
+            - name: never
               rules:
-                - regexp: "api/users"
+                - regexp: "^/never"
+
+  - host: mock-upstream
+    name: example-lua-ctgate
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-ctgate
+        paths:
+          - /lua-ctgate
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          strategy: in-memory
+          content_type: ["text/xml"]
+
+  - host: mock-upstream
+    name: example-lua-maxsize
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-maxsize
+        paths:
+          - /lua-maxsize
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          strategy: in-memory
+          cache_ttl: 300
+          cacheable_body_max_size: 10
+
+  - host: mock-upstream
+    name: example-lua-setcookie
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-setcookie
+        paths:
+          - /lua-setcookie
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          strategy: in-memory
 
   # 코어 자기검증(골든 벡터·필터·엔트리 왕복) — Nginx 런타임에서만 돈다.
   - host: mock-upstream

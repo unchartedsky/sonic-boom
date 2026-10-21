@@ -145,6 +145,8 @@ services:
       - KONG_LOG_LEVEL=debug
       # RE2→PCRE 전환 완화: 백트래킹 상한(R4 명시 차이 3호)
       - KONG_NGINX_HTTP_LUA_REGEX_MATCH_LIMIT=10000
+      # in-memory 전략 저장소(노드 안 worker 공유)
+      - KONG_NGINX_HTTP_LUA_SHARED_DICT=sonic_boom_cache 32m
     ports:
       - '8010:8000'
     restart: on-failure
