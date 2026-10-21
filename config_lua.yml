@@ -168,6 +168,46 @@ services:
             host: redis
             port: 6379
 
+  # Go example(/ex) 필터 미러 — 재생 비교 S5용(필터 룰·TTL 동일)
+  - host: mock-upstream
+    name: example-lua-filter
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-filter
+        paths:
+          - /lua-filter
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization, Accept-Encoding, Accept-Language]
+          filters:
+            - name: path and header
+              rules:
+                - regexp: ".*page=\\(.*\\).*"
+                - header: Authorization
+                  regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+              cache_ttl: 30
+            - name: path
+              rules:
+                - regexp: ".*page=\\(.*\\).*"
+              cache_ttl: 30
+            - name: header
+              rules:
+                - header: Authorization
+                  regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+              cache_ttl: 30
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: redis
+          redis:
+            host: redis
+            port: 6379
+
   # 코어 자기검증(골든 벡터·필터·엔트리 왕복) — Nginx 런타임에서만 돈다.
   - host: mock-upstream
     name: example-lua-selfcheck
