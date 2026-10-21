@@ -20,6 +20,10 @@ TMPD="$(mktemp -d)"
 trap 'rm -rf "${TMPD}"' EXIT
 
 curl_h() {
+	local a
+	for a in "$@"; do
+		[[ "${a}" == http* ]] && LAST_URL="${a}"
+	done
 	curl -s -i -m 10 "$@" | tr -d '\r'
 }
 
@@ -32,8 +36,18 @@ hdr_value() {
 	awk -F': ' -v h="$2" 'tolower($1)==tolower(h){sub(/\r$/,""); print $2}' "$1" | head -1
 }
 
+# HIT_RETRY_TIMEOUT(초): Hit 기대가 실패하면 마지막 curl URL을 기한 내 재시도한다.
+# redis/cluster의 log 단계 timer 저장은 응답 직후 비동기라 즉시 Hit가 경합하기 때문.
+# 미설정이면 기존 동작 그대로(Go 경로 무변경).
 assert_status() {
 	local want="$1" got="$2" name="$3"
+	if [[ "${want}" == "Hit" && -n "${HIT_RETRY_TIMEOUT:-}" && "${got}" != "Hit" && -n "${LAST_URL:-}" ]]; then
+		local deadline=$(( $(date +%s) + HIT_RETRY_TIMEOUT ))
+		while [[ "${got}" != "Hit" && $(date +%s) -lt ${deadline} ]]; do
+			sleep 0.3
+			got="$(status_of "$(curl_h "${LAST_URL}")")"
+		done
+	fi
 	echo "  ${name}: ${got:-<none>} (기대 ${want})"
 	if [[ "${got}" != "${want}" ]]; then
 		echo "FAIL: [${STRATEGY}] ${name} — got '${got:-<none>}', want '${want}'" >&2

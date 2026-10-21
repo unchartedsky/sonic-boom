@@ -59,6 +59,22 @@ return {
           { cacheable_body_max_size = { type = "integer", between = { 0, 9223372036854775807 }, default = 0 } },
           { cache_version = { type = "string" } }, -- 미설정=env CACHE_VERSION>플러그인 버전(핸들러 cache_version)
           { strategy = { type = "string", one_of = { "redis", "redis-cluster", "in-memory" }, default = "redis" } },
+          { redis = {
+              type = "record",
+              fields = {
+                { host = { type = "string", default = "localhost" } }, -- Go도 required 검증 없음(연결 시점 실패)
+                { port = { type = "integer", between = { 1, 65535 }, default = 6379 } },
+                { db_number = { type = "integer", between = { 0, 2147483647 }, default = 0 } },
+                { username = { type = "string" } },
+                { password = { type = "string", referenceable = true } },
+                { pool_size = { type = "integer", between = { 1, 2147483647 }, default = 10 } },
+                -- Go의 max_retries·retry backoff는 미구현 동작이라 의도적 미선언(KTD4: 재시도 없는 fail-open)
+                { dial_timeout = { type = "integer", between = { 1, 2147483647 }, default = 5 } },
+                { read_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
+                { write_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
+                { idle_timeout = { type = "integer", between = { 1, 2147483647 }, default = 1 } },
+              },
+          } },
         },
       },
     },

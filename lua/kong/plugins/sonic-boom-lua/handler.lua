@@ -5,6 +5,7 @@ local core_filter = require "sonic_boom.filter"
 local core_entry = require "sonic_boom.entry"
 local core_headers = require "sonic_boom.headers"
 local store_memory = require "sonic_boom.store.memory"
+local store_redis = require "sonic_boom.store.redis"
 
 local plugin = {
   PRIORITY = 100,  -- Go판 pluginserver 우선선위(1)와 같은 위치감 — 인증 아래, 변환 위는 U6 재생 비교에서 재조정
@@ -17,7 +18,10 @@ local PREFIX = "sonic-boom-lua product=kong-lua: "
 -- nil이면 조회가 항상 Miss다(개발 중 단계적 장착).
 plugin.new_store = function(conf)
   if conf.strategy == "in-memory" then
-    return store_memory.new()
+    return store_memory.new(conf)
+  end
+  if conf.strategy == "redis" then
+    return store_redis.new(conf)
   end
   return nil
 end
@@ -240,9 +244,19 @@ function plugin:header_filter(conf)
   sb.headers = kong.response.get_headers()
 
   -- HEAD는 본문 청크가 흐르지 않아 body_filter eof가 올 것을 보장하지 못한다.
-  -- 빈 본문 엔트리를 여기서 저장한다(body_filter도 오면 같은 내용으로 덮는다).
+  -- 동기 저장소(in-memory)면 여기서 빈 본문 엔트리를 굽고, 비동기 저장소(redis·cluster)는
+  -- cosocket이 header_filter에서도 금지라 log 타이머로 넘긴다.
   if kong.request.get_method():upper() == "HEAD" then
-    store_entry(conf, sb, "")
+    local store = plugin.new_store(conf)
+    if store and store.sync then
+      store_entry(conf, sb, "")
+      kong.ctx.plugin.sb_signal = nil
+    else
+      sb.body = ""
+      sb.status = kong.response.get_status()
+      sb.version = cache_version(conf)
+      sb.timestamp = ngx.time()
+    end
   end
 end
 
@@ -265,8 +279,43 @@ function plugin:body_filter(conf)
   end
 
   if eof then
-    store_entry(conf, sb, sb.buf and table.concat(sb.buf) or "")
-    kong.ctx.plugin.sb_signal = nil
+    local store = plugin.new_store(conf)
+    if store and store.sync then
+      store_entry(conf, sb, sb.buf and table.concat(sb.buf) or "")
+      kong.ctx.plugin.sb_signal = nil
+    else
+      -- redis/cluster: cosocket이 body_filter에서 금지라 log 단계 timer로 저장을 미룬다.
+      -- 엔트리 필드를 신호에 미리 굽는다(타임스탬프는 응답 시점 = Go Response 관측과 근사).
+      sb.body = sb.buf and table.concat(sb.buf) or ""
+      sb.status = kong.response.get_status()
+      sb.version = cache_version(conf)
+      sb.timestamp = ngx.time()
+    end
+  end
+end
+
+function plugin:log(conf)
+  local sb = kong.ctx.plugin.sb_signal
+  if not sb or not sb.body then return end
+  kong.ctx.plugin.sb_signal = nil
+
+  local payload = {
+    key = sb.key, ttl = sb.ttl, body = sb.body, headers = sb.headers or {},
+    status = sb.status, version = sb.version, timestamp = sb.timestamp,
+  }
+
+  local ok, err = ngx.timer.at(0, function(premature)
+    if premature then return end
+    local store = plugin.new_store(conf)
+    if not store then return end
+    store.set(payload.key, core_entry.encode({
+      status = payload.status, headers = payload.headers, body = payload.body,
+      timestamp = payload.timestamp, version = payload.version, ttl = payload.ttl,
+    }), payload.ttl)
+  end)
+  if not ok then
+    ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: timer creation failed, not storing key=",
+      sb.key, " err=", err)
   end
 end
 
