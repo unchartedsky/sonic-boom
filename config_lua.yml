@@ -168,6 +168,50 @@ services:
             host: redis
             port: 6379
 
+  - host: mock-upstream
+    name: example-lua-redis-cluster
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-redis-cluster
+        paths:
+          - /lua-redis-cluster
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: redis-cluster
+          redis_cluster:
+            addrs: ["redis-cluster:7000"]
+
+  - host: mock-upstream
+    name: example-lua-redis-cluster-vary
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-redis-cluster-vary
+        paths:
+          - /lua-redis-cluster-vary
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization, Accept-Encoding]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: redis-cluster
+          redis_cluster:
+            addrs: ["redis-cluster:7000"]
+
   # Go example(/ex) 필터 미러 — 재생 비교 S5용(필터 룰·TTL 동일)
   - host: mock-upstream
     name: example-lua-filter

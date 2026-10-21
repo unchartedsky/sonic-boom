@@ -6,6 +6,7 @@ local core_entry = require "sonic_boom.entry"
 local core_headers = require "sonic_boom.headers"
 local store_memory = require "sonic_boom.store.memory"
 local store_redis = require "sonic_boom.store.redis"
+local store_rediscluster = require "sonic_boom.store.rediscluster_store"
 
 local plugin = {
   PRIORITY = 100,  -- Go판 pluginserver 우선선위(1)와 같은 위치감 — 인증 아래, 변환 위는 U6 재생 비교에서 재조정
@@ -22,6 +23,9 @@ plugin.new_store = function(conf)
   end
   if conf.strategy == "redis" then
     return store_redis.new(conf)
+  end
+  if conf.strategy == "redis-cluster" then
+    return store_rediscluster.new(conf)
   end
   return nil
 end

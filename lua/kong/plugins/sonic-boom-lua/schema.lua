@@ -75,6 +75,22 @@ return {
                 { idle_timeout = { type = "integer", between = { 1, 2147483647 }, default = 1 } },
               },
           } },
+          { redis_cluster = {
+              type = "record",
+              fields = {
+                { addrs = {
+                    type = "array",
+                    elements = { type = "string" },
+                } },
+                { username = { type = "string" } },
+                { password = { type = "string", referenceable = true } },
+                { pool_size = { type = "integer", between = { 1, 2147483647 }, default = 10 } },
+                { dial_timeout = { type = "integer", between = { 1, 2147483647 }, default = 5 } },
+                { read_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
+                { write_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
+                { idle_timeout = { type = "integer", between = { 1, 2147483647 }, default = 1 } },
+              },
+          } },
         },
       },
     },
