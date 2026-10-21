@@ -16,6 +16,22 @@ services:
         paths:
           - /lua-in-memory
         strip_path: true
+
     plugins:
       - name: sonic-boom-lua
         config: {}
+
+  # 코어 자기검증(골든 벡터·필터·엔트리 왕복) — Nginx 런타임에서만 돈다.
+  - host: mock-upstream
+    name: example-lua-selfcheck
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-selfcheck
+        paths:
+          - /selfcheck
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          selfcheck: true
