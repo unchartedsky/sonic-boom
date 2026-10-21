@@ -1,0 +1,18 @@
+# sonic-boom-lua — Kong 네이티브 Lua 플러그인 전용 이미지.
+# Go판 Dockerfile과 같은 베이스(kong:3.9.4-ubuntu). 바이너리 빌드 단계 없이
+# Lua 소스·nginx include 지시문만 굽는다. 선언형 config는 배포 시점 몫(mount/env).
+FROM kong:3.9.4-ubuntu
+
+ARG TARGETOS
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.source="https://github.com/unchartedsky/sonic-boom"
+
+COPY lua/ /kong-lua/
+COPY conf/kong-lua-extra.conf /kong/extra-nginx.conf
+
+# 플러그인 로드 구성을 이미지에 굽는다 — compose env/마운트 드리프트 방지(U8 교정의 교훈)
+ENV KONG_PLUGINS=bundled,sonic-boom-lua \
+    KONG_LUA_PACKAGE_PATH=/kong-lua/?.lua;; \
+    KONG_NGINX_HTTP_LUA_REGEX_MATCH_LIMIT=10000 \
+    KONG_NGINX_HTTP_INCLUDE=/kong/extra-nginx.conf
