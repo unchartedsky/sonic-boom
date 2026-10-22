@@ -142,6 +142,49 @@ function _M.run()
   local _w5, _f5, _t5 = fill_lock.or_wait(fake_store(ft, frec), "k5", { enabled = true, ttl_ms = 0, wait_ms = 1 })
   ok = check(r, "fill-lock ttl_ms 0은 기본 3000ms 폴백", frec.ttl == 3) and ok
 
+  -- flow.access 조회 판정: 버전 불일치는 purge 후 Miss(낡은 값을 Hit로 서빙하지 않는다 —
+  -- CLAUDE.md "return 시맨틱 보존"), 신선하면 Hit 단락, ttl 초과는 Refresh. e2e로는 닿지 않는 분기다.
+  local flow = require "sonic_boom.flow" -- flow가 selfcheck를 지연 require하므로 여기서 불러 순환을 피한다
+  local hdr = {}
+  local fenv = {
+    method = function() return "GET" end,
+    req_header = function() return nil end,
+    path = function() return "/selfcheck-flow" end,
+    path_with_query = function() return "/selfcheck-flow" end,
+    raw_body = function() return "", nil end,
+    ids = function() return "selfcheck-flow-" .. ngx.now(), "", "" end,
+    set_header = function(n, v) hdr[n] = v end,
+    log = { err = function() end, notice = function() end },
+  }
+  local fconf = {
+    request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
+    cache_version = "sc-v2", fill_lock = { enabled = false },
+  }
+  local cid = fenv.ids()
+  fenv.ids = function() return cid, "", "" end -- 같은 키로 네 번 조회
+  local mstore = require("sonic_boom.store.memory").new()
+  local _e0, sb0 = flow.access(fconf, fenv, nil)
+  local fkey = sb0 and sb0.key
+  ok = check(r, "flow 빈 저장소 → Miss", hdr["X-Cache-Status"] == "Miss" and fkey ~= nil) and ok
+  if fkey then
+    local function put(version, age)
+      mstore.set(fkey, entry.encode({ status = 200, headers = {}, body = "cached",
+        timestamp = ngx.time() - age, version = version, ttl = 60 }), 60)
+    end
+    put("sc-v1", 0)
+    local e1, sb1 = flow.access(fconf, fenv, nil)
+    ok = check(r, "flow 버전 불일치 → purge 후 Miss",
+      e1 == nil and sb1 ~= nil and hdr["X-Cache-Status"] == "Miss" and mstore.get(fkey) == nil) and ok
+    put("sc-v2", 0)
+    local e2 = flow.access(fconf, fenv, nil)
+    ok = check(r, "flow 신선한 엔트리 → Hit 단락",
+      e2 ~= nil and e2.status == 200 and e2.body == "cached" and e2.headers["X-Cache-Status"] == "Hit") and ok
+    put("sc-v2", 120)
+    local e3, sb3 = flow.access(fconf, fenv, nil)
+    ok = check(r, "flow ttl 초과 → Refresh", e3 == nil and sb3 ~= nil and hdr["X-Cache-Status"] == "Refresh") and ok
+    mstore.delete(fkey)
+  end
+
   return ok, table.concat(r, "\n")
 end
 

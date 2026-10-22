@@ -34,9 +34,11 @@ echo "  X-Cache-Key 접두: ${key%%:*} (기대 ${GW_KEY_PREFIX})"
 # APISIX: 미구현 필드(cache_control) 라우트는 스키마에서 거부돼 그 라우트만 로드되지 않는다.
 # (Kong-Lua는 선언형 로드 전체가 거부되므로 별도 경로로 검증한다.)
 if [[ "${GW_SVC}" == "apisix" ]]; then
-	code="$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$B/lua-schema-reject/api/users")"
-	echo "  cache_control 라우트 거부: HTTP ${code} (기대 404)"
-	[[ "${code}" == "404" ]] || { echo "FAIL: 스키마 거부 라우트가 살아 있다" >&2; exit 1; }
+	# 업스트림 목업도 404를 줄 수 있어 상태 코드만으론 거부와 수락이 갈리지 않는다 —
+	# 라우트 미존재일 때만 나오는 APISIX 본문("404 Route Not Found")으로 단언한다.
+	body="$(curl -s -m 10 "$B/lua-schema-reject/api/users")"
+	echo "  cache_control 라우트 거부: ${body}"
+	[[ "${body}" == *"404 Route Not Found"* ]] || { echo "FAIL: 스키마 거부 라우트가 살아 있다" >&2; exit 1; }
 	# 로그를 먼저 담는다 — pipefail 아래 grep -q가 일찍 끝나면 logs가 SIGPIPE로 실패한다.
 	logs="$(docker compose logs "${GW_SVC}" 2>&1)"
 	[[ "${logs}" == *"found cache_control, key: /routes/lua-schema-reject"* ]] \
