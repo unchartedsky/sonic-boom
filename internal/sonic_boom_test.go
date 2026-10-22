@@ -16,6 +16,8 @@ import (
 	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func defaultLogger() *Logger {
@@ -1011,8 +1013,71 @@ func TestConfig_filtered(t *testing.T) {
 	}
 }
 
-func TestConfig_cacheableRequest(t *testing.T) {
-	type fields struct {
+// errEnv는 지정한 번째 get_header 호출에 깨진 프로토콜 프레임을 돌려 Ask 오류를
+// 유발한다 — MockStep에는 오류 주입 필드가 없어(bridgetest.go) fail-closed 분기
+// 테스트에 필요하다. get_method는 정상 "GET"으로 답한다.
+type errEnv struct {
+	t              *testing.T
+	getHeaderErrOn int // 1-based; 0이면 오류 없음
+}
+
+func (e *errEnv) Handle(method string, args_d []byte) []byte {
+	if method == "kong.request.get_method" {
+		d, err := proto.Marshal(structpb.NewStringValue("GET"))
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		return d
+	}
+	if method == "kong.request.get_header" {
+		e.getHeaderErrOn--
+		if e.getHeaderErrOn == 0 {
+			return []byte{0xff} // proto.Unmarshal이 실패하는 프레임
+		}
+		d, err := proto.Marshal(structpb.NewStringValue(""))
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		return d
+	}
+	return nil
+}
+
+func (e *errEnv) Errorf(format string, args ...interface{}) { e.t.Errorf(format, args...) }
+func (e *errEnv) IsRunning() bool                           { return true }
+func (e *errEnv) SubscribeStatusChange(ch chan<- string)    {}
+
+func TestConfig_cacheableRequest_headerReadError(t *testing.T) {
+	tests := []struct {
+		name string
+		errN int
+	}{
+		{name: "Cache-Control 읽기 실패는 캐시 불가(fail-closed)", errN: 1},
+		{name: "Authorization 읽기 실패는 캐시 불가(fail-closed)", errN: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conf := Config{
+				RequestMethods: []string{"GET"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+				CacheControl:   true,
+				logger:         defaultLogger(),
+			}
+			env := &errEnv{t: t, getHeaderErrOn: tt.errN}
+			kong := &pdk.PDK{
+				Request: request.Request{PdkBridge: bridge.New(bridgetest.MockFunc(env))},
+				Log:     mockLogDefault(t),
+			}
+			got, ttl := conf.cacheableRequest(kong)
+			if got || ttl != 0 {
+				t.Errorf("cacheableRequest() = (%v, %d), want (false, 0)", got, ttl)
+			}
+		})
+	}
+}
+
+func TestConfig_cacheableRequest(t *testing.T) {	type fields struct {
 		ResponseCodes        []int
 		RequestMethods       []string
 		ContentTypes         []string
