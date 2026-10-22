@@ -5,7 +5,7 @@
 local _M = {}
 
 local LOCK_PREFIX = "sb-lock:"
-local WARN_PREFIX = "sonic-boom-lua product=kong-lua: fill-lock "
+local product = require "sonic_boom.product"
 
 local seq = 0
 local function new_token()
@@ -31,7 +31,7 @@ function _M.acquire(store, key, ttl_s)
   local token = new_token()
   local ok, err = store.setnx(lock_key(key), token, ttl_s)
   if ok == nil then
-    ngx.log(ngx.WARN, WARN_PREFIX .. "acquire failed, fail-open: ", tostring(err))
+    ngx.log(ngx.WARN, product.label .. "fill-lock acquire failed, fail-open: ", tostring(err))
     return true, ""
   end
   return ok, ok and token or ""

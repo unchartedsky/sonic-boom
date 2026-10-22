@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# kong-lua redis-cluster 스모크. 재실행 멱등: 클러스터 노드 3개 FLUSHALL
+# Lua 포팅 redis-cluster 스모크(GW=kong-lua 기본 | apisix). 재실행 멱등: 클러스터 노드 3개 FLUSHALL
 # (노드별 슬롯이 독립적이라 전 노드에 실행한다).
+source "$(dirname "$0")/common.sh"
+gw_env
 docker compose exec -T redis-cluster-node-1 sh -c \
   'for h in 172.30.0.11 172.30.0.12 172.30.0.13; do redis-cli -h "$h" -p 7000 FLUSHALL; done' >/dev/null
-docker compose --profile lua restart kong-lua >/dev/null
+docker compose --profile "${GW_PROFILE}" restart "${GW_SVC}" >/dev/null
 sleep 6
 
-BASE_URL=http://localhost:8010 SKIP_SCHEMA_ASSERT=1 HIT_RETRY_TIMEOUT=5 \
+BASE_URL="${GW_BASE}" SKIP_SCHEMA_ASSERT=1 HIT_RETRY_TIMEOUT=5 \
   "$(dirname "$0")/smoke_lib.sh" "rediscluster" "/lua-redis-cluster"
 
 # ---- U7 시나리오 ----
@@ -32,7 +34,7 @@ echo "  cluster SET NX 왕복: 1차=[${r1}] 2차=[${r2}] (기대 OK / (nil))"
 
 UP_ID="$(docker compose ps -q mock-upstream)"
 CTAG="cx-$(date +%s)"
-CBURST="http://localhost:8010/lua-cluster-stampede/api/big?page=${CTAG}"
+CBURST="${GW_BASE}/lua-cluster-stampede/api/big?page=${CTAG}"
 CBEFORE=$(docker logs "${UP_ID}" 2>/dev/null | wc -l | tr -d ' ')
 seq 4 | xargs -P 4 -I{} curl -s -o /dev/null -m 60 "${CBURST}"
 sleep 3 # log 타이머 저장·access log flush 여유
@@ -41,4 +43,4 @@ CDELTA=$((CAFTER - CBEFORE))
 echo "  cluster fill-lock 버스트: 업스트림 ${CDELTA}회 (기대 ≤2)"
 [[ "${CDELTA}" -le 2 ]] || { echo "FAIL: 클러스터 fill-lock — 업스트림 ${CDELTA}회(fail-open 의심)" >&2; exit 1; }
 
-echo "OK: [lua-rediscluster] U7 시나리오 통과"
+echo "OK: [${GW_SVC}-rediscluster] U7 시나리오 통과"

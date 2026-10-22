@@ -54,10 +54,11 @@ function sha256_hex(s)
 end
 
 -- k: {consumer, service, route, method, path, query, vary, ttl, body}
--- version: cache_version(설정). 결과 형식은 R3: sbl:{version}:{sha256-hex}
+-- version: cache_version(설정). prefix: 제품별 키 접두(기본 sbl, APISIX는 sba) — 해시 입력에 들지 않는다.
+-- 결과 형식은 R3: {prefix}:{version}:{sha256-hex}
 local _M = {}
-function _M.derive(k, version)
-  return "sbl:" .. version .. ":" .. sha256_hex(serialize(k))
+function _M.derive(k, version, prefix)
+  return (prefix or "sbl") .. ":" .. version .. ":" .. sha256_hex(serialize(k))
 end
 
 _M.serialize = serialize  -- selfcheck가 골든 직렬화 단얩에 쓴다

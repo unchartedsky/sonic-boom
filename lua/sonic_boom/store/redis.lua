@@ -3,7 +3,7 @@
 -- fail-open(Miss), 저장 실패는 경고 로그 — 재시도는 없다(KTD4).
 local redis_lib = require "sonic_boom.vendor.redis"
 
-local PREFIX = "sonic-boom-lua product=kong-lua: "
+local product = require "sonic_boom.product"
 
 local _M = {}
 _M.sync = false  -- cosocket이 header/body_filter에서 금지라 저장은 log 단계 timer가 담당
@@ -26,7 +26,7 @@ local function connect(conf)
   if not ok then
     return nil, err
   end
-  ngx.log(ngx.DEBUG, PREFIX, "redis reused times: ", tostring(red:get_reused_times()))
+  ngx.log(ngx.DEBUG, product.label, "redis reused times: ", tostring(red:get_reused_times()))
   return red
 end
 
@@ -40,14 +40,14 @@ function _M.new(conf)
   function store.get(key)
     local red, err = connect(conf)
     if not red then
-      ngx.log(ngx.ERR, PREFIX .. "redis connect failed (fail-open, miss): ", err)
+      ngx.log(ngx.ERR, product.label .. "redis connect failed (fail-open, miss): ", err)
       return nil
     end
     local val, gerr = red:get(key)
     release(conf, red)
     if not val then
       if gerr then
-        ngx.log(ngx.ERR, PREFIX .. "redis get failed (fail-open, miss): ", gerr)
+        ngx.log(ngx.ERR, product.label .. "redis get failed (fail-open, miss): ", gerr)
       end
       return nil
     end
@@ -60,7 +60,7 @@ function _M.new(conf)
   function store.set(key, value, ttl)
     local red, err = connect(conf)
     if not red then
-      ngx.log(ngx.WARN, PREFIX .. "redis connect failed, not storing: ", err)
+      ngx.log(ngx.WARN, product.label .. "redis connect failed, not storing: ", err)
       return nil, err
     end
     local ok, serr
@@ -71,7 +71,7 @@ function _M.new(conf)
     end
     release(conf, red)
     if not ok then
-      ngx.log(ngx.WARN, PREFIX .. "redis set failed, not storing: ", tostring(serr))
+      ngx.log(ngx.WARN, product.label .. "redis set failed, not storing: ", tostring(serr))
     end
     return ok, serr
   end
@@ -79,13 +79,13 @@ function _M.new(conf)
   function store.delete(key)
     local red, err = connect(conf)
     if not red then
-      ngx.log(ngx.WARN, PREFIX .. "redis connect failed, not deleting: ", err)
+      ngx.log(ngx.WARN, product.label .. "redis connect failed, not deleting: ", err)
       return nil, err
     end
     local ok, derr = red:del(key)
     release(conf, red)
     if not ok then
-      ngx.log(ngx.WARN, PREFIX .. "redis del failed: ", tostring(derr))
+      ngx.log(ngx.WARN, product.label .. "redis del failed: ", tostring(derr))
     end
     return ok
   end
@@ -94,7 +94,7 @@ function _M.new(conf)
   function store.setnx(key, value, ttl)
     local red, err = connect(conf)
     if not red then
-      ngx.log(ngx.WARN, PREFIX .. "redis connect failed, lock fail-open: ", err)
+      ngx.log(ngx.WARN, product.label .. "redis connect failed, lock fail-open: ", err)
       return nil, err
     end
     local res, serr = red:set(key, value, "EX", ttl, "NX")

@@ -1,0 +1,15 @@
+# sonic-boom-lua — APISIX 어댑터 전용 이미지.
+# Kong-Lua(Dockerfile.kong-lua)와 같은 코어를 쓴다. Lua 트리를 통째로 복사해
+# sonic_boom/·apisix/plugins/ 하위 경로를 보존한다(require 경로가 디렉터리 구조다).
+# 선언형 라우트(apisix.yaml)는 배포 시점 몫(mount).
+FROM apache/apisix:3.19.0-debian
+
+ARG TARGETOS
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.source="https://github.com/unchartedsky/sonic-boom"
+
+COPY lua/ /opt/sonic-boom/
+COPY conf/apisix-config.yaml /usr/local/apisix/conf/config.yaml
+
+ENV APISIX_STAND_ALONE=true

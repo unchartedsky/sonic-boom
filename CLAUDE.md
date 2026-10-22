@@ -17,6 +17,7 @@ make build   # bin/linux-${GOARCH}/sonic-boom 크로스컴파일(build.sh 위임
 make test    # 통합 테스트 — compose로 redis·redis-cluster 기동 후 golang 컨테이너에서 go test -race
 make e2e     # 플러그인 빌드 + compose clean 기동(down -v) + 세 전략 스모크(공통 6단언 + gzip suite)
 make e2e-lua # Lua 포팅(kong-lua) e2e — profile lua 기동(포트 8010) 후 smoke_lua_*.sh 3종, 스모크가 스스로 캐시를 비운다
+make e2e-apisix # APISIX 어댑터 e2e — profile apisix 기동(포트 8020) 후 같은 스모크 3종을 GW=apisix로
 make stress  # 스탬피드·CSC 실측 시나리오 + 자동 단언(기대 미달 시 exit 1)
 ```
 
@@ -28,7 +29,7 @@ make stress  # 스탬피드·CSC 실측 시나리오 + 자동 단언(기대 미�
 
 ## Architecture
 
-- **두 구현**: 같은 플러그인의 Go판(`main.go`+`internal/`, go-pdk external plugin 서버)과 Lua판(`lua/`)이 있다. Lua판은 게이트웨이 중립 코어(`lua/sonic_boom/`) + Kong 어댑터(`lua/kong/plugins/sonic-boom-lua/`)로 나뉜다. PoC 시점의 Go판 대비 명시 차이는 `docs/kong-lua-verdict.md`에 기록돼 있고, 그중 Set-Cookie·Cache-Control 디렉티브 미저장 차이는 U1·U2로(양쪽 모두 무조건 미저장), fill-lock 부재는 U4로 해소됐다. 남은 차이: cache_control 스키마 거부(Lua), RE2→PCRE, 저장 시점 비동기(redis/cluster).
+- **두 구현**: 같은 플러그인의 Go판(`main.go`+`internal/`, go-pdk external plugin 서버)과 Lua판(`lua/`)이 있다. Lua판은 게이트웨이 중립 코어(`lua/sonic_boom/`, 요청 상태기계는 `flow.lua`) + 게이트웨이 어댑터 둘(Kong `lua/kong/plugins/sonic-boom-lua/`, APISIX `lua/apisix/plugins/sonic-boom-lua.lua`)로 나뉜다. 어댑터는 PDK 게터·세터(env)·ctx 저장·단락 방식만 담당하고, 제품 식별(로그 라벨·키 접두 sbl/sba)은 `product.lua`로 주입한다. APISIX 판정 자료는 `docs/apisix-verdict.md`. PoC 시점의 Go판 대비 명시 차이는 `docs/kong-lua-verdict.md`에 기록돼 있고, 그중 Set-Cookie·Cache-Control 디렉티브 미저장 차이는 U1·U2로(양쪽 모두 무조건 미저장), fill-lock 부재는 U4로 해소됐다. 남은 차이: cache_control 스키마 거부(Lua), RE2→PCRE, 저장 시점 비동기(redis/cluster).
 - **요청 흐름**: Access 페이즈(`Config.Access`)가 캐시 키를 만들고 캐시를 조회해 Hit면 즉시 응답하고, 아니면 캐시 시그널(`CacheSignal` — 캐시 키+TTL)을 ctx에 남긴다. Response 페이즈(`Config.Response`)는 시그널이 남아 있을 때만 저장을 시도한다. `X-Cache-Status`는 Miss/Hit/Bypass/Refresh 4상태다.
 - **캐시 키**(`cache_key.go`): service/route/consumer/method/vary 헤더/본문 등을 직렬화 후 xxhash. `sonic-boom:{version}:{hash}` 프리픽스. `cache_version` 값을 바꾸면 설정 리로드로 이전 세대가 무효화된다.
 - **전략**(`newCacheManager`): gocache 저장소 3종을 구성한다. in-memory는 ristretto(비동기 쓰기), redis·redis-cluster는 설정 값 키로 프로세스 수명 공유되는 클라이언트를 쓴다. 설정 하나는 정확히 하나의 전략을 쓴다.
@@ -47,4 +48,4 @@ go-pdk external plugin 서버는 핸들러 패닉에 recover가 없다. 근거�
 
 ## Testing
 
-3층 구조(단위 → 통합 → e2e). **`docs/testing.md`가 테스트 SSOT** — 서버가 필요한 테스트는 스킵이 아니라 실패(fail-fast). ristretto 비동기 쓰기, 설정 값 키 저장소 공유로 TTL이 고정되는 문제 같은 알려진 특성과 새 캐시 전략 추가 절차는 testing.md에 정리돼 있다. Lua판 e2e는 `make e2e-lua`, Go↔Lua 재생 비교는 `scripts/parity_replay.sh`(redis 전략 기준, 명시 차이 Set-Cookie 분기 제외). CI는 게이트웨이 × 아치 단위로 잡을 분리하는 규약이 있다(docs/testing.md "CI 잡 경계" — APISIX 확장 시 같은 모양). 팀 용어는 `CONCEPTS.md`, 누적된 학습은 `docs/solutions/`에 있다.
+3층 구조(단위 → 통합 → e2e). **`docs/testing.md`가 테스트 SSOT** — 서버가 필요한 테스트는 스킵이 아니라 실패(fail-fast). ristretto 비동기 쓰기, 설정 값 키 저장소 공유로 TTL이 고정되는 문제 같은 알려진 특성과 새 캐시 전략 추가 절차는 testing.md에 정리돼 있다. Lua판 e2e는 `make e2e-lua`(Kong)·`make e2e-apisix`(APISIX), 재생 비교는 `scripts/parity_replay.sh`(redis 전략 기준, `PARITY_PAIR=go-lua`|`lua-apisix`). CI는 게이트웨이 × 아치 단위로 잡을 분리하는 규약이 있다(docs/testing.md "CI 잡 경계" — Go·Kong-Lua·APISIX가 각자 smoke·container 잡을 갖고, 재생 비교는 쌍별 잡). 팀 용어는 `CONCEPTS.md`, 누적된 학습은 `docs/solutions/`에 있다.

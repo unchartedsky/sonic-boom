@@ -3,16 +3,15 @@
 날짜: 2026-10-21 · 브랜치 `andromedarabbit/kong-lua` · 소비자: **사람 판정 회의**
 계획: `docs/plans/2026-10-21-1136-feat-kong-lua-port-plan.md` (U1–U9 전 단위 완료, 9 커밋)
 
-## 종료 기준 6항목 대조
+## 종료 기준 대조
 
 | 항목 | 결과 | 근거 |
 |---|---|---|
 | **기능** | ✅ 통과 | 전략 3종 스모크(6단언+gzip·deflate·br 인코딩+stale 재검증) 초록: `scripts/smoke_lua_{in_memory,redis,rediscluster}.sh`. 재생 비교 `scripts/parity_replay.sh` exit 0 — 시퀀스·status·body 일치(명시 차이 Set-Cookie 분기 제외). **범위 명시: 재생 비교는 redis 전략 라우트 기준** — 전략 전체 동등성은 각 전략 스모크로 담보 |
 | **라이브러리 충분성** | ✅ 충족(한계 명시) | 이미지 번들 부재 3종 실측 후 vendoring으로 해소(resty.sha256→openssl.digest, lua-resty-redis, xmodem). `lua_regex_match_limit` 이미지 지원 확인(생성 nginx.conf 반영). 타임아웃·keepalive 매핑 동작(재사용 로그 실측). shdict no memory fail-open 코드 경로 구현(강제 소형 zone 실측은 미실행 — 예외 기록). **cluster ACL username은 소스 조립 수준 검증만** — 런타임 실측은 백로그(compose 클러스터 무인증) |
-| **성능** | ✅ 선등록 문턱 안 | `docs/bench-kong-lua-vs-go.md`: HIT Lua 15,175 RPS·p99 24ms vs Go 1,524 RPS·p99 150ms; MISS 4,708 vs 134 RPS. 문턱(p99 회귀 >20%·RPS 저하 >10%) 미달 — 유의미 열세 없음. PoC 조건(맥 단일 머신, c50) 한정 |
+| **성능** | ✅ 선등록 문턱 안 | `docs/bench-kong-lua-vs-go.md`: HIT Lua 15,175 RPS·p99 24ms vs Go 1,524 RPS·p99 150ms; MISS 4,708 vs 134 RPS. 문턱(p99 회귀 >20%·RPS 저하 >10%) 미달 — 유의미 열세 없음. PoC 조건(맥 단일 머신, c50) 한정. **2026-10-22 재측정**(코어 이전·fill-lock 기본 on 이후): HIT Lua 16,030 RPS·p99 31ms vs Go 2,822·74ms, MISS Lua 742·226ms vs Go 263·289ms — 여전히 문턱 안. MISS 하락은 비저장 라우트의 fill-lock 대기 때문이다(같은 문서 재측정 절) |
 | **관측성** | ✅ 최소 형태 | 모든 로그에 `sonic_boom.product=kong-lua` 접두 부착(R8). **span 속성은 백로그**(Kong tracing 연동 미구현 — 범위 경계). 자기검증 라우트(`/selfcheck`)가 회귀 감지 초동선 |
-| **이식성** | ✅ 예비 신호(한계 명시) | 코어(`lua/sonic_boom/`, 455줄, vendor 제외)에서 `kong.*` 참조 **0건**(grep 실측). 어댑터 424줄(schema+handler) — 비율 ~1:1로 "얇은 어댑터"는 아니며, 게이트웨이별 스키마·단락 메커니즘 재작성이 이식 비용의 대부분이다. **APISIX 연동 자체는 미검증** — 본 신호는 "코어가 재사용 가능하게 분리됐다"까지만 말한다 |
-| **팀 감당** | ⚠️ 근거 불충분(판정 회의 과제) | 루프 9틱이 전 단위를 무정체로 완료했다는 사실은 자동화 마찰이 낮다는 뜻이지 팀의 Lua 유지보수 능력 증거가 아니다. 교정 로그(아래)가 실제 디버깅 난도의 표본이다 — LuaJIT goto 미지원, cosocket 단계 제약, Kong conf 반복 키 등. **2026-10-22 결정: 증거 요건을 에이전트 중심으로 재정의** — 사람이 에이전트 산출물 2건(U4 커밋 + 그 리뷰 리포트)을 읽고 ① 변경이 무엇을 바꿨는지 ② 리뷰 지적이 타당한지 스스로 판정한다(약 30분). 판정이 리뷰 결론과 크게 어긋나지 않으면 충족, 어긋나면 Lua판 운영 보류 시그널. 직접 디버깅 드릴은 에이전트 없이 운영하는 팀의 기준으로 갈음한다 |
+| **이식성** | ✅ 예비 신호(한계 명시) | 코어(`lua/sonic_boom/`, 455줄, vendor 제외)에서 `kong.*` 참조 **0건**(grep 실측). 어댑터 424줄(schema+handler) — 비율 ~1:1로 "얇은 어댑터"는 아니며, 게이트웨이별 스키마·단락 메커니즘 재작성이 이식 비용의 대부분이다. **APISIX 연동 자체는 미검증** — 본 신호는 "코어가 재사용 가능하게 분리됐다"까지만 말한다. **2026-10-22 갱신: APISIX 어댑터로 실증됐다**(`docs/apisix-verdict.md`). 페이즈 로직을 코어 상태기계 `flow.lua`로 옮긴 뒤 Kong 어댑터는 172줄, APISIX 어댑터는 195줄로 줄어 어댑터:코어가 ~1:5다 |
 
 ## 미해결 결정 (판정 회의 전 사용자 결정 필요)
 
@@ -51,7 +50,7 @@
 
 ## 판정 회의 안건
 
-1. 6항목 대조 승인 — 팀 감당 항목의 증거 요건은 2026-10-22 에이전트 중심 판정 방식으로 확정(표 참조), 나머지 승인만 잔여
+1. 종료 기준 대조 승인(팀 감당 항목은 2026-10-22 판정 대상에서 제외 — 에이전트로 운영하므로 별도 증거가 필요 없다)
 2. 미해결 결정 1건(인증 주체 키 분리) 채택 여부
-3. APISIX 확장 착수 — 코어 재사용 전제로 `adapters/apisix/` 착수 승인 여부
+3. APISIX 확장 착수 — 코어 재사용 전제로 `adapters/apisix/` 착수 승인 여부 (2026-10-22 진행됨 — 판정은 `docs/apisix-verdict.md`의 안건으로 이어진다)
 4. Kong Lua판의 운용 전환(PoC→운영 라우트 적용) 여부와 시점

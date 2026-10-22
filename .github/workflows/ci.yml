@@ -67,6 +67,32 @@ jobs:
       - name: Run Lua e2e smoke tests (${{ matrix.platform }})
         run: make e2e-lua
 
+  # APISIX 어댑터 e2e — 게이트웨이 × 아치 잡 경계 규약(docs/testing.md "CI 잡 경계").
+  # kong-lua와 같은 스모크 3종을 GW=apisix로 돈다. 포트 8020·profile apisix로 러너 분리.
+  smoke-test-apisix:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run APISIX e2e smoke tests (${{ matrix.platform }})
+        run: make e2e-apisix
+
+      - name: Dump compose diagnostics
+        if: failure()
+        run: |
+          docker compose --profile apisix ps -a || true
+          docker compose logs apisix --tail 100 || true
+
   # Go↔Lua 재생 비교(가장 강한 동등성 게이트) — 양 게이트웨이가 필요해
   # Go 바이너리 빌드 후 둘 다 기동. 논리 검증이라 단일 아치로 충분.
   parity:
@@ -102,3 +128,24 @@ jobs:
           docker compose --profile lua ps -a || true
           docker compose logs kong kong-lua --tail 100 || true
           docker inspect sonic-boom-kong-1 sonic-boom-kong-lua-1 --format '{{.Name}} {{json .State.Health}}' || true
+
+  # Kong-Lua↔APISIX 재생 비교 — 코어를 공유하는 값싼 쌍. Go 빌드 불필요, 단일 아치로 충분.
+  parity-lua-apisix:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run parity replay (Kong-Lua vs APISIX)
+        run: |
+          docker compose --profile lua --profile apisix up -d --build --wait kong-lua apisix mock-upstream redis cluster-init
+          PARITY_PAIR=lua-apisix ./scripts/parity_replay.sh
+          docker compose --profile lua --profile apisix down -v --remove-orphans
+
+      - name: Dump compose diagnostics
+        if: failure()
+        run: |
+          docker compose --profile lua --profile apisix ps -a || true
+          docker compose logs kong-lua apisix --tail 100 || true
+          docker inspect sonic-boom-kong-lua-1 sonic-boom-apisix-1 --format '{{.Name}} {{json .State.Health}}' || true

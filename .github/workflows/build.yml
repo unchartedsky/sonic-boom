@@ -297,6 +297,84 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+  container-apisix:
+    # sonic-boom-lua APISIX 어댑터 이미지 — container-lua와 같은 모양, Go 바이너리 불필요.
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    strategy:
+      fail-fast: false
+      matrix:
+        image-name:
+          - "ghcr.io/unchartedsky/sonic-boom-apisix"
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Prepare
+      id: prep
+      run: |
+        VERSION=edge
+        if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          VERSION=nightly
+        else
+          VERSION=${GITHUB_REF#refs/heads/}
+        fi
+        VERSION=$(echo "${VERSION}" | sed -r 's/\//_/g')
+        TAGS="${DOCKER_IMAGE}:${VERSION}"
+
+        if [[ "${VERSION}" == "master" ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:latest"
+        fi
+
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:${GITHUB_REF#refs/tags/v}"
+        fi
+
+        SHORT_ID=$(echo ${GITHUB_SHA} | cut -c -7)
+        TAGS="$TAGS,${DOCKER_IMAGE}:sha-${SHORT_ID}"
+        if [[ $VERSION =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+          TAGS="$TAGS,${DOCKER_IMAGE}:latest"
+        fi
+        echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+      env:
+        DOCKER_IMAGE: ${{ matrix.image-name }}
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v4
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+      id: buildx
+      with:
+        install: true
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ matrix.image-name }}
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - uses: docker/build-push-action@v7
+      with:
+        file: ${{ github.workspace }}/Dockerfile.apisix
+        context: ${{ github.workspace }}
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.prep.outputs.tags }}
+        pull: true
+        cache-from: type=gha,scope=sonic-boom-apisix
+        cache-to: type=gha,mode=max,scope=sonic-boom-apisix
+
   release:
     needs: build
     runs-on: ubuntu-latest

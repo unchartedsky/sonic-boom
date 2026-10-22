@@ -1,6 +1,8 @@
 -- in-memory 저장소(lua_shared_dict). 노드 안 모든 worker가 공유한다
 -- (Go판 "플러그인 서버 프로세스 하나 = 노드 공유"와 같은 의미).
 -- set 실패(no memory·단편화)는 fail-open: 경고 로그만 남기고 요청은 계속 진행.
+local product = require "sonic_boom.product"
+
 local DICT_NAME = "sonic_boom_cache"
 
 local _M = {}
@@ -20,11 +22,11 @@ function _M.new()
   function store.set(key, value, ttl)
     local ok, err, forcible = dict():set(key, value, ttl)
     if not ok then
-      ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: shared dict set failed key=",
+      ngx.log(ngx.WARN, product.label .. "shared dict set failed key=",
         key, " err=", err)
     end
     if forcible then
-      ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: shared dict evicted live entries (zone too small) key=", key)
+      ngx.log(ngx.WARN, product.label .. "shared dict evicted live entries (zone too small) key=", key)
     end
     return ok, err
   end
@@ -37,7 +39,7 @@ function _M.new()
       return true
     end
     if err ~= "exists" then
-      ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: shared dict setnx failed key=",
+      ngx.log(ngx.WARN, product.label .. "shared dict setnx failed key=",
         key, " err=", err)
       return nil, err
     end

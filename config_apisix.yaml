@@ -1,0 +1,331 @@
+# APISIX standalone 선언형 설정 — config_lua.yml(Kong-Lua)의 라우트를 같은 경로로 미러링한다.
+# smoke_lib.sh·parity_replay.sh가 /lua-* 경로를 그대로 쓰기 때문이다(GW_BASE만 다르다).
+# Kong strip_path는 proxy-rewrite regex_uri로 흉내 낸다. 파일은 반드시 #END로 끝난다 —
+# 없으면 APISIX가 라우트를 조용히 로드하지 않는다.
+upstreams:
+  - id: mock
+    type: roundrobin
+    # Kong preserve_host=false와 같게 업스트림 호스트로 Host를 보낸다.
+    pass_host: node
+    nodes:
+      "mock-upstream:80": 1
+
+routes:
+  # wait_for_kong·본문 참조 프로브(플러그인 없음)
+  - id: noplugins
+    uri: /noplugins/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/noplugins(/.*)", "$1"]
+
+  - id: lua-probe
+    uri: /lua-probe/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-probe(/.*)", "$1"]
+
+  - id: lua-in-memory
+    uri: /lua-in-memory/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-in-memory(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: in-memory
+
+  - id: lua-in-memory-vary
+    uri: /lua-in-memory-vary/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-in-memory-vary(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: in-memory
+
+  # 아래 넷은 고정 시나리오 검증 라우트(config_lua.yml과 같다)
+  - id: lua-nomatch
+    uri: /lua-nomatch/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-nomatch(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        filters:
+          - name: never
+            rules:
+              - regexp: "^/never"
+
+  - id: lua-ctgate
+    uri: /lua-ctgate/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-ctgate(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        content_type: ["text/xml"]
+
+  - id: lua-maxsize
+    uri: /lua-maxsize/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-maxsize(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        cache_ttl: 300
+        cacheable_body_max_size: 10
+
+  - id: lua-setcookie
+    uri: /lua-setcookie/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-setcookie(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+
+  - id: lua-redis
+    uri: /lua-redis/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
+  - id: lua-redis-vary
+    uri: /lua-redis-vary/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-vary(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
+  - id: lua-redis-cluster
+    uri: /lua-redis-cluster/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-cluster(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  - id: lua-redis-cluster-vary
+    uri: /lua-redis-cluster-vary/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-cluster-vary(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  # fill-lock 토글 라우트 쌍 — config_lua.yml의 /lua-redis-nolock·/lua-redis-stampede 미러.
+  # stampede는 /api/big(약 9초 fill)이라 대기 상한을 fill보다 길게(15s) 둔다.
+  - id: lua-redis-nolock
+    uri: /lua-redis-nolock/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-nolock(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: false
+        redis:
+          host: redis
+          port: 6379
+          db_number: 3
+
+  - id: lua-redis-stampede
+    uri: /lua-redis-stampede/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-stampede(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 60
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: true
+          ttl_ms: 30000
+          wait_ms: 15000
+        redis:
+          host: redis
+          port: 6379
+          db_number: 4
+
+  # 클러스터 fill-lock 검증용 — fork 범용 디스패치의 SET NX를 종단간으로 검증한다.
+  - id: lua-cluster-stampede
+    uri: /lua-cluster-stampede/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-cluster-stampede(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 60
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        fill_lock:
+          enabled: true
+          ttl_ms: 30000
+          wait_ms: 15000
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  # Go example(/ex) 필터 미러 — 재생 비교 S5용(필터 룰·TTL 동일)
+  - id: lua-filter
+    uri: /lua-filter/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-filter(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding, Accept-Language]
+        filters:
+          - name: path and header
+            rules:
+              - regexp: ".*page=\\(.*\\).*"
+              - header: Authorization
+                regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+            cache_ttl: 30
+          - name: path
+            rules:
+              - regexp: ".*page=\\(.*\\).*"
+            cache_ttl: 30
+          - name: header
+            rules:
+              - header: Authorization
+                regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+            cache_ttl: 30
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
+  # 스키마 거부 검증: 미구현 필드 cache_control은 additionalProperties=false로 거부된다.
+  # APISIX standalone은 항목 단위로 건너뛰므로 이 라우트만 404가 되고 나머지는 산다.
+  - id: lua-schema-reject
+    uri: /lua-schema-reject/*
+    upstream_id: mock
+    plugins:
+      sonic-boom-lua:
+        strategy: in-memory
+        cache_control: true
+
+  # 5종 벤치 — MISS는 in-memory·fill-lock 끔(내장 캐시와 같은 무락 조건).
+  - id: lua-maxsize-nolock
+    uri: /lua-maxsize-nolock/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-maxsize-nolock(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        cache_ttl: 300
+        cacheable_body_max_size: 10
+        fill_lock:
+          enabled: false
+
+  # 5종 벤치 — APISIX 내장 proxy-cache(memory 전략, 기본 memory_cache 존). MISS는 200을 저장 대상에서 뺀다.
+  - id: apisix-pc
+    uri: /apisix-pc/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/apisix-pc(/.*)", "$1"]
+      proxy-cache:
+        cache_strategy: memory
+        cache_zone: memory_cache
+        cache_ttl: 300
+
+  - id: apisix-pc-miss
+    uri: /apisix-pc-miss/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/apisix-pc-miss(/.*)", "$1"]
+      proxy-cache:
+        cache_strategy: memory
+        cache_zone: memory_cache
+        cache_ttl: 300
+        cache_http_status: [404]
+
+  # 코어 자기검증(골든 벡터·필터·엔트리 왕복·fill-lock 계약) — Nginx 런타임에서만 돈다.
+  - id: selfcheck
+    uri: /selfcheck/*
+    upstream_id: mock
+    plugins:
+      sonic-boom-lua:
+        selfcheck: true
+#END
