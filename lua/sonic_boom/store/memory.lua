@@ -11,6 +11,7 @@ end
 
 function _M.new()
   local store = {}
+  store.sync = true -- shdict은 cosocket 제약이 없다 — header·body_filter 동기 저장·해제 가능
 
   function store.get(key)
     return dict():get(key)
@@ -28,14 +29,19 @@ function _M.new()
     return ok, err
   end
 
-  -- setnx: shdict add의 원자적 설정. 키가 있으면 (false, "exists")로 진 패배다.
+  -- setnx: shdict add의 원자적 설정. 키가 있으면 (false, "exists")로 진 패배,
+  -- 그 외 오류("no memory" 등)는 (nil, err)로 돌려 acquire의 fail-open이 처리한다.
   function store.setnx(key, value, exptime)
     local ok, err = dict():add(key, value, exptime or 0)
-    if not ok and err ~= "exists" then
+    if ok then
+      return true
+    end
+    if err ~= "exists" then
       ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: shared dict setnx failed key=",
         key, " err=", err)
+      return nil, err
     end
-    return ok, err
+    return false, err
   end
 
   function store.delete(key)
