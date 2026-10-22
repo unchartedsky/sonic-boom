@@ -196,10 +196,18 @@ main() {
 	if [[ -z "${SKIP_SCHEMA_ASSERT:-}" ]]; then
 		assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
 
-		local cc_url="${BASE}/cache-control/enc/deflate/api/users?page=ae4"
-		assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 첫 요청(Miss)"
-		assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 이후 요청(Bypass)"
-		assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 3회째(Bypass)"
+		# cache_control=true 옵트인 가드: 무관 요청은 캐시되고, Authorization·
+		# no-store·no-cache 요청은 매번 Bypass다(조회 이전 차단).
+		local cc_url="${BASE}/cache-control/api/users?page=ae4"
+		assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 첫 요청(Miss)"
+		assert_status Hit "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 재요청(Hit)"
+		local cc_auth="Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ="
+		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${BASE}/cache-control/api/users?page=ae5")")" "cache_control Authorization 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${BASE}/cache-control/api/users?page=ae5")")" "cache_control Authorization 재요청"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${BASE}/cache-control/api/users?page=ae6")")" "cache_control no-store 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${BASE}/cache-control/api/users?page=ae6")")" "cache_control no-store 재요청"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${BASE}/cache-control/api/users?page=ae7")")" "cache_control no-cache 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${BASE}/cache-control/api/users?page=ae7")")" "cache_control no-cache 재요청"
 	fi
 
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다

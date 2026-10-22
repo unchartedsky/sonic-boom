@@ -81,7 +81,6 @@ func newConfigValidator() *validator.Validate {
 	return validate
 }
 
-// TODO cache control 은 나중에 구현하자
 type Config struct {
 	ResponseCodes        []int              `json:"response_code" validate:"required,gte=0" default:"[200, 301, 404]"`
 	RequestMethods       []string           `json:"request_method" validate:"required" default:"[\"GET\", \"HEAD\"]"`
@@ -501,14 +500,6 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		return
 	}
 
-	if conf.CacheControl {
-		logger.Error().Msg("Cache control is enabled but not implemented yet; bypassing")
-		if err := conf.setCacheStatus(kong, "Bypass", logger); err != nil {
-			logger.Error().Err(err).Msg("SetHeader failed")
-		}
-		return
-	}
-
 	// don't serve stale data; res may be stored for up to `conf.storage_ttl` secs
 	now := time.Now()
 	secs := now.Unix()
@@ -554,17 +545,31 @@ func (conf *Config) cacheableRequest(kong *pdk.PDK) (bool, int) {
 		return false, 0
 	}
 
+	// cache_control=true일 때 Kong 원본의 명시 거부 지시문을 존중한다 — 요청
+	// Cache-Control의 no-store/no-cache와 Authorization 자격증명 요청은 캐시에서
+	// 제외한다(옵트인 가드, G8 완화). 판정 오류는 캐시 불가로 본다(fail-closed).
+	if conf.CacheControl {
+		cc, err := kong.Request.GetHeader("Cache-Control")
+		if err != nil {
+			conf.logger.Error().Err(err).Msg("Getting request Cache-Control failed")
+			return false, 0
+		}
+		auth, err := kong.Request.GetHeader("Authorization")
+		if err != nil {
+			conf.logger.Error().Err(err).Msg("Getting request Authorization failed")
+			return false, 0
+		}
+		lcc := strings.ToLower(cc)
+		if strings.Contains(lcc, "no-store") || strings.Contains(lcc, "no-cache") || auth != "" {
+			conf.logger.Debug().Msg("Request is disallowed by cache_control")
+			return false, 0
+		}
+	}
+
 	cacheable, ttl := conf.filtered(kong)
 	if cacheable {
 		return cacheable, ttl
 	}
-
-	// check for explicit disallow directives
-	// TODO note that no-cache isnt quite accurate here
-	//if conf.cache_control and (cc["no-store"] or cc["no-cache"] or
-	//	ngx.var.authorization) then
-	//	return false
-	//end
 
 	return false, 0
 }

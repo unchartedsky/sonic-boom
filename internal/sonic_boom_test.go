@@ -1057,6 +1057,113 @@ func TestConfig_cacheableRequest(t *testing.T) {
 			want1: 2,
 		},
 		{
+			name: "cache_control=true + Authorization은 거부",
+			fields: fields{
+				logger:         defaultLogger(),
+				RequestMethods: []string{"GET", "HEAD"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+				CacheControl:   true,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_method", Ret: bridge.WrapString("GET")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Cache-Control"), Ret: bridge.WrapString("")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Authorization"), Ret: bridge.WrapString("Basic dXNlcjpwYXNz")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  false,
+			want1: 0,
+		},
+		{
+			name: "cache_control=true + no-store 요청은 거부",
+			fields: fields{
+				logger:         defaultLogger(),
+				RequestMethods: []string{"GET", "HEAD"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+				CacheControl:   true,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_method", Ret: bridge.WrapString("GET")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Cache-Control"), Ret: bridge.WrapString("no-store")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Authorization"), Ret: bridge.WrapString("")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  false,
+			want1: 0,
+		},
+		{
+			name: "cache_control=true + 복합 no-cache 요청은 거부",
+			fields: fields{
+				logger:         defaultLogger(),
+				RequestMethods: []string{"GET", "HEAD"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+				CacheControl:   true,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_method", Ret: bridge.WrapString("GET")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Cache-Control"), Ret: bridge.WrapString("max-age=0, No-Cache")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Authorization"), Ret: bridge.WrapString("")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  false,
+			want1: 0,
+		},
+		{
+			name: "cache_control=true + 무관 디렉티브는 캐시",
+			fields: fields{
+				logger:         defaultLogger(),
+				RequestMethods: []string{"GET", "HEAD"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+				CacheControl:   true,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_method", Ret: bridge.WrapString("GET")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Cache-Control"), Ret: bridge.WrapString("max-age=60")},
+						{Method: "kong.request.get_header", Args: bridge.WrapString("Authorization"), Ret: bridge.WrapString("")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  true,
+			want1: 2,
+		},
+		{
+			name: "cache_control=false면 Authorization도 무관",
+			fields: fields{
+				logger:         defaultLogger(),
+				RequestMethods: []string{"GET", "HEAD"},
+				Filters:        []Filter{},
+				CacheTTL:       2,
+			},
+			args: args{
+				kong: &pdk.PDK{
+					Request: mockRequest(t, []bridgetest.MockStep{
+						{Method: "kong.request.get_method", Ret: bridge.WrapString("GET")},
+					}),
+					Log: mockLogDefault(t),
+				},
+			},
+			want:  true,
+			want1: 2,
+		},
+		{
 			name: "test with empty rules",
 			fields: fields{
 				logger:         defaultLogger(),

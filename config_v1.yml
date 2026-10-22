@@ -500,8 +500,9 @@ services:
           - /noplugins
         strip_path: true
 
-  # AE4: cache_control: true 라우트 — 미구현 플래그가 프로세스를 죽이지 않고
-  # Bypass로 통과한다. cache_control 분기는 히트 뒤에만 도달해 첫 요청은 Miss(저장).
+  # cache_control: true 라우트 — Kong 원본 의도의 옵트인 요청 가드(G8 완화).
+  # 요청 Cache-Control의 no-store/no-cache와 Authorization 헤더는 캐시에서
+  # 제외되고, 나머지 요청은 정상 캐시된다(응답 디렉티브 게이트는 설정과 무관).
   - host: mock-upstream
     name: example-cache-control
     port: 80

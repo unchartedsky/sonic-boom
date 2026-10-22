@@ -105,6 +105,13 @@ pair "S10 private"  Bypass GET "/go-setcookie/ccprivate/api/users?pr=s10"  "/lua
 pair "S11 no-store" Bypass GET "/go-setcookie/ccnostore/api/users?pr=s11" "/lua-setcookie/ccnostore/api/users?pr=s11"
 pair "S12 no-cache" Bypass GET "/go-setcookie/ccnocache/api/users?pr=s12" "/lua-setcookie/ccnocache/api/users?pr=s12"
 
+# S13 cache_control 요청 가드 — Go 전용 옵트인(Lua는 cache_control을 스키마에서
+# 거부한다, R4 명시 차이 2). Authorization 요청은 매번 Bypass다.
+hit go "$GO" GET "/cache-control/api/users?pr=s13" -H "$A1"
+hit go "$GO" GET "/cache-control/api/users?pr=s13" -H "$A1"
+echo "  S13 가드: go=[$(cat "${TMPD}/go.res")] (기대 Bypass×2)"
+[[ "$(cut -d'|' -f2 <<<"$(cat "${TMPD}/go.res")")" == "Bypass" ]] || { echo "FAIL: S13 cache_control 가드" >&2; exit 1; }
+
 # S9 Age 존재·증가(갱신 조건 정합) — 신선한 키를 데운 뒤 두 Hit로 관측
 hit go "$GO" GET "/redis/api/users?pr=s9"; hit go "$GO" GET "/redis/api/users?pr=s9"; ga1="$(age_of go)"
 hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; la1="$(age_of lua)"

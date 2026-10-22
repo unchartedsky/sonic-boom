@@ -6,6 +6,10 @@
 
 - **개인화 응답 미저장 게이트** — `Set-Cookie` 응답과 `Cache-Control: private/no-store/no-cache` 응답을 저장하지 않는다(G9). 해당 응답은 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소). Lua판에 없던 `no-cache` 검사도 추가됐다.
 
+### Changed
+
+- **`cache_control: true`가 실제로 동작** — 기존에는 첫 요청만 저장하고 이후 Bypass했으나, 이제 Kong 원본 의도의 옵트인 요청 가드로 동작한다. 요청 `Cache-Control: no-store/no-cache`와 `Authorization` 헤더는 캐시에서 제외되고, 나머지 요청은 정상 캐시된다(G8 완화). **운영 주의**: 이 플래그를 켠 기존 배포는 응답이 실제로 캐시·재생되기 시작한다.
+
 ### Fixed
 
 검증된 결함 9종 수정(전체 근거: `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md`, 계획: `docs/plans/2026-10-18-2126-fix-verified-cache-bugs-plan.md`).
