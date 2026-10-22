@@ -94,6 +94,50 @@ function _M.run()
   local fill_lock = require "sonic_boom.fill_lock"
   ok = check(r, "fill-lock 락 키 프리픽스", fill_lock.lock_key("abc") == "sb-lock:abc") and ok
 
+  -- fill-lock 계약 벡터: fake store로 internal/fill_lock_test.go의 핵심 분기를 미러링한다.
+  local function fake_store(tbl, rec)
+    tbl = tbl or {}
+    rec = rec or {}
+    return {
+      tbl = tbl, rec = rec,
+      setnx = function(_, k, v, ttl)
+        rec.ttl = ttl
+        if tbl[k] then return false, "exists" end
+        tbl[k] = v
+        return true
+      end,
+      get = function(_, k) return tbl[k] end,
+      delete = function(_, k) tbl[k] = nil end,
+    }
+  end
+
+  local ft = {}
+  local frec = {}
+  local fs = fake_store(ft, frec)
+  local won, tok = fill_lock.acquire(fs, "k1", 1)
+  ok = check(r, "fill-lock acquire 승리", won == true and tok ~= "") and ok
+  fill_lock.release(fs, "k1", "other-token")
+  ok = check(r, "fill-lock release 토큰 불일치 유지", ft[fill_lock.lock_key("k1")] == tok) and ok
+  fill_lock.release(fs, "k1", tok)
+  ok = check(r, "fill-lock release 토큰 일치 해제", ft[fill_lock.lock_key("k1")] == nil) and ok
+
+  local w2, f2, t2 = fill_lock.or_wait(fake_store(), "k2", { enabled = false })
+  ok = check(r, "fill-lock 비활성은 무조건 승자 통과", w2 == true and f2 == nil and t2 == "") and ok
+
+  local ft3 = { ["k3"] = "RAW" } -- 미스 조회와 락 획득 사이 다른 요청이 채운 값
+  local w3, f3, t3 = fill_lock.or_wait(fake_store(ft3), "k3", { enabled = true, ttl_ms = 3000, wait_ms = 1 })
+  ok = check(r, "fill-lock 승자 더블체크는 자기 락을 풀고 값을 서빙",
+    w3 == false and f3 == "RAW" and t3 == "" and ft3[fill_lock.lock_key("k3")] == nil) and ok
+
+  local ft4 = {}
+  ft4[fill_lock.lock_key("k4")] = "other" -- 남이 락 보유 중
+  local w4, f4, t4 = fill_lock.or_wait(fake_store(ft4), "k4", { enabled = true, ttl_ms = 3000, wait_ms = 1 })
+  ok = check(r, "fill-lock 패자 기한 초과는 nil 통과", w4 == false and f4 == nil and t4 == "") and ok
+
+  -- or_wait가 ttl_ms<=0을 기본 3000ms로 폴백하는지(초 단위 3으로 변환돼 setnx에 전달)
+  local _w5, _f5, _t5 = fill_lock.or_wait(fake_store(ft, frec), "k5", { enabled = true, ttl_ms = 0, wait_ms = 1 })
+  ok = check(r, "fill-lock ttl_ms 0은 기본 3000ms 폴백", frec.ttl == 3) and ok
+
   return ok, table.concat(r, "\n")
 end
 
