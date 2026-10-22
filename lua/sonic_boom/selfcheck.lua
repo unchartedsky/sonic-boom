@@ -100,14 +100,14 @@ function _M.run()
     rec = rec or {}
     return {
       tbl = tbl, rec = rec,
-      setnx = function(_, k, v, ttl)
+      setnx = function(k, v, ttl)
         rec.ttl = ttl
         if tbl[k] then return false, "exists" end
         tbl[k] = v
         return true
       end,
-      get = function(_, k) return tbl[k] end,
-      delete = function(_, k) tbl[k] = nil end,
+      get = function(k) return tbl[k] end,
+      delete = function(k) tbl[k] = nil end,
     }
   end
 
