@@ -25,3 +25,6 @@ Access 페이즈가 Response 페이즈로 캐시 키와 TTL만을 전달하는 �
 
 ### cache_version
 캐시 세대 마커. 값을 바꾸면 이전 세대 캐시가 무효가 되고, 변경 경로는 설정 리로드다(env 경로는 프로세스 환경에 고정).
+
+### 주체 키 분리
+인증 주체(consumer·principal)를 캐시 키에 반영해 사용자별 캐시 네임스페이스를 만드는 정책. 확정된 주체의 무조건 반영이 기본이고, 그 위에 얹는 선택은 주체 없는 인증 요청의 저장 거부다. *Avoid:* consumer isolation, principal isolation — 상류 제품 옵션명(APISIX `consumer_isolation`, Kong `cache_by_principal`)을 sonic-boom 정책어로 쓰지 않는다.
