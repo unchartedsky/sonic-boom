@@ -70,7 +70,7 @@ suite_overhead() { # <이름> <a_base> <a_plugin> <b_base> <b_plugin>
 }
 
 if [[ "${BENCH_PAIR:-go-lua}" == "lua-apisix" ]]; then
-	docker compose --profile lua --profile apisix up -d --wait kong-lua apisix mock-upstream redis cluster-init >/dev/null 2>&1
+	docker compose --profile lua --profile apisix up -d --build --wait kong-lua apisix mock-upstream redis cluster-init >/dev/null 2>&1
 	for _ in $(seq 1 30); do
 		if curl -sf -o /dev/null http://localhost:8010/lua-in-memory/api/users?warm && \
 		   curl -sf -o /dev/null http://localhost:8020/lua-in-memory/api/users?warm; then

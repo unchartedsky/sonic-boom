@@ -137,13 +137,8 @@ local ENV = {
   method = function() return ngx.req.get_method() end,
   req_header = function(ctx, h) return first(core.request.header(ctx, h)) end,
   path = function(ctx) return ctx.var.uri end,
-  path_with_query = function(ctx)
-    local args = ctx.var.args
-    if args and args ~= "" then
-      return ctx.var.uri .. "?" .. args
-    end
-    return ctx.var.uri
-  end,
+  -- 필터 대상은 Kong(get_path_with_query)과 같은 원본 request_uri — 정규화된 uri면 판정이 갈린다.
+  path_with_query = function(ctx) return ctx.var.request_uri or "" end,
   raw_body = function(ctx) return core.request.get_body(nil, ctx) end,
   ids = function(ctx)
     return ctx.consumer_name or "", ctx.service_id or "", ctx.route_id or ""

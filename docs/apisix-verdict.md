@@ -35,8 +35,8 @@
    (`cache_control` 등)를 거부하는 결과는 같다.
 4. **큰 요청 본문을 읽는다.** `core.request.get_body`는 파일로 버퍼링된 본문도 읽는다. 그래서 Kong-Lua에서는
    본문 읽기 실패로 통과하던 큰 POST가 APISIX에서는 캐시 대상이 된다.
-5. **경로 정규화가 다르다.** APISIX는 `ctx.var.uri`(nginx 정규화)를 쓰고 Kong은 `kong.request.get_path`를 쓴다.
-   이 차이는 키에만 영향을 주고 재생 비교 결과와는 무관하다.
+5. **키의 경로 정규화가 다르다.** 키의 경로는 APISIX가 `ctx.var.uri`(nginx 정규화)를, Kong이 `kong.request.get_path`를 쓴다.
+   필터 매치 대상은 두 게이트웨이 모두 원본 `request_uri`라 같다. 이 차이는 키에만 영향을 주고 재생 비교 결과와는 무관하다.
 6. **ctx 공유 제약이 있다.** 시그널을 `ctx.sonic_boom_signal`에 두는데, APISIX ctx는 전 플러그인이 공유한다.
    그래서 같은 라우트에 global_rule과 라우트 플러그인을 동시에 거는 구성은 미지원이다.
 
