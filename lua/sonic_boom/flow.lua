@@ -275,6 +275,13 @@ local function store_entry(conf, sb, body, env)
   }), sb.ttl)
 end
 
+-- 저장을 포기한 요청의 신호를 소유 토큰만 남긴 release-only로 바꾼다(log 타이머가 락을 푼다).
+-- 토큰이 없으면(fill-lock 끔·패자) 풀 락이 없으니 신호를 버린다.
+local function release_only(sb)
+  if not sb.lock_token or sb.lock_token == "" then return nil end
+  return { key = sb.key, ttl = sb.ttl, lock_token = sb.lock_token, release_only = true }
+end
+
 function _M.header_filter(conf, sb, env, ctx)
   if not sb then return nil end
 
@@ -282,13 +289,9 @@ function _M.header_filter(conf, sb, env, ctx)
   if not ok then
     -- 해제는 log 타이머로 미룬다 — header_filter에선 cosocket이 금지돼 있다.
     -- 소유 토큰만 남은 release-only 신호로 바꿔 놓는다(body_filter가 저장을 시도하지 않게).
-    local next_sb = nil
-    if sb.lock_token and sb.lock_token ~= "" then
-      next_sb = { key = sb.key, ttl = sb.ttl, lock_token = sb.lock_token, release_only = true }
-    end
     env.set_header("X-Cache-Status", "Bypass")
     env.log.notice(product.label .. "response not storable, bypassing store: ", reason)
-    return next_sb
+    return release_only(sb)
   end
 
   sb.headers = env.resp_headers()
@@ -321,12 +324,8 @@ function _M.body_filter(conf, sb, env)
     if conf.cacheable_body_max_size > 0 and size > conf.cacheable_body_max_size then
       -- Go와 같은 '>' 경계. 초과 시 수집을 중단하고 저장하지 않는다(잘린 body 저장 금지).
       -- 해제는 log 타이머로 — body_filter에선 cosocket이 금지돼 있다.
-      local next_sb = nil
-      if sb.lock_token and sb.lock_token ~= "" then
-        next_sb = { key = sb.key, ttl = sb.ttl, lock_token = sb.lock_token, release_only = true }
-      end
       ngx.log(ngx.INFO, product.label .. "body exceeds cacheable_body_max_size, not storing key=", sb.key)
-      return next_sb
+      return release_only(sb)
     end
     sb.buf = sb.buf or {}
     sb.buf[#sb.buf + 1] = chunk
