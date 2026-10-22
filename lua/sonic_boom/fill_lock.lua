@@ -49,14 +49,19 @@ end
 
 -- wait: 패자가 기한 안에 값이 채워지기를 폴링한다. 재폴링 간격에 지터를 섞어
 -- 대기자들이 같은 박자로 저장소를 두드리지 않게 한다. 수면이 먼저다(Go와 동일).
+-- 편차(Go 미러 불일치): store.get에는 기한을 못 건다 — 마지막 get은 저장소
+-- dial/read 타임아웃(최대 약 8s)까지만 묶인다. 루프는 기한 경과 후 get을
+-- 발행하지 않고 수면을 남은 시간으로 캡해 초과를 한 번의 get으로 제한한다.
 function _M.wait(store, key, wait_ms)
   local deadline = ngx.now() + wait_ms / 1000
-  while ngx.now() < deadline do
-    ngx.sleep(0.02 + math.random() * 0.02)
+  while true do
+    local now = ngx.now()
+    if now >= deadline then return nil end
+    ngx.sleep(math.min(0.02 + math.random() * 0.02, deadline - now))
+    if ngx.now() >= deadline then return nil end
     local v = store.get(key)
     if v then return v end
   end
-  return nil
 end
 
 -- or_wait: 미스 판정 진입부. 승자는 (true, nil, token) — token=""은 fail-open
