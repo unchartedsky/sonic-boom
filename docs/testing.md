@@ -22,6 +22,8 @@ ctx 핸드오프라 클라이언트가 직접 호출하는 경로가 아니며, 
 ```bash
 make test   # compose 백엔드(redis, redis-cluster) 기동 → go test ./... -race 실행 → 정리
 make e2e    # 플러그인 빌드 → compose 전체 clean 기동(down -v) → 세 전략 스모크 → 정리
+make e2e-lua    # Kong-Lua(kong-lua, :8010) 3전략 스모크 + selfcheck
+make e2e-apisix # APISIX 어댑터(apisix, :8020) — 같은 스모크 3종을 GW=apisix로
 make stress # 동접 스트레스 시나리오 — 스탬피드(fill-lock on/off)·CSC on/off 실측 + 단언(기대 미달 시 exit 1)
 make build  # build.sh 위임, bin/linux-${GOARCH}/sonic-boom 크로스컴파일
 ```
@@ -117,7 +119,17 @@ CI 병렬화의 단위는 **게이트웨이 × 아치**다. 한 러너에서 게
 잡을 나눠 러너를 분리한다(`smoke-test` / `smoke-test-lua`). 재생 비교(`parity`)는
 양쪽 게이트웨이가 필요하므로 자체 잡에서 둘 다 띄운다.
 
-APISIX 추가 시 같은 규약을 따른다: `container-apisix`(이미지)·`smoke-test-apisix`
-(e2e)·`parity-lua-apisix`(코어 공유라 값싼 쌍) 잡을 같은 모양으로 붙인다.
+APISIX도 같은 규약을 따른다: `container-apisix`(이미지)·`smoke-test-apisix`
+(e2e)·`parity-lua-apisix`(코어 공유라 값싼 쌍) 잡이 같은 모양으로 붙어 있다.
 게이트웨이별 compose profile(`lua`, `apisix`)과 `make e2e-<gateway>` 타깃이 이 경계의
-로컬 대응물이다.
+로컬 대응물이다. 호스트 포트는 Go kong 8000, kong-lua 8010, apisix 8020이다.
+
+두 Lua 게이트웨이는 같은 코어와 같은 `/lua-*` 라우트 경로를 쓴다. 그래서 스크립트는 게이트웨이를
+변수로만 고른다.
+
+- **스모크:** `scripts/smoke_lua_*.sh`는 `GW=kong-lua`(기본)|`apisix`로 대상 서비스·프로필·베이스 URL을
+  바꾼다(`scripts/common.sh`의 `gw_env`). 키 접두는 `sbl`/`sba`로 단언한다.
+- **재생 비교:** `scripts/parity_replay.sh`는 `PARITY_PAIR=go-lua`(기본)|`lua-apisix`로 쌍을 고른다.
+  lua-apisix에서는 Go 전용 시나리오(S13)를 건너뛴다.
+- **벤치:** `scripts/bench_gw.sh`는 `BENCH_PAIR=go-lua`(기본)|`lua-apisix`다. lua-apisix는 각자의
+  `/noplugins` 대비 오버헤드 비율로 판정한다(`docs/bench-apisix-vs-kong-lua.md`).
