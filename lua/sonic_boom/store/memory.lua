@@ -28,6 +28,16 @@ function _M.new()
     return ok, err
   end
 
+  -- setnx: shdict add의 원자적 설정. 키가 있으면 (false, "exists")로 진 패배다.
+  function store.setnx(key, value, exptime)
+    local ok, err = dict():add(key, value, exptime or 0)
+    if not ok and err ~= "exists" then
+      ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: shared dict setnx failed key=",
+        key, " err=", err)
+    end
+    return ok, err
+  end
+
   function store.delete(key)
     dict():delete(key)
   end

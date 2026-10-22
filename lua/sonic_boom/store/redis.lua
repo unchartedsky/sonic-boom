@@ -90,6 +90,20 @@ function _M.new(conf)
     return ok
   end
 
+  -- setnx: SET key value EX ttl NX. 획득은 "OK", 경합 패배는 ngx.null, 오류는 nil, err.
+  function store.setnx(key, value, ttl)
+    local red, err = connect(conf)
+    if not red then
+      ngx.log(ngx.WARN, PREFIX .. "redis connect failed, lock fail-open: ", err)
+      return nil, err
+    end
+    local res, serr = red:set(key, value, "EX", ttl, "NX")
+    release(conf, red)
+    if res == "OK" then return true end
+    if res == ngx.null then return false end
+    return nil, serr
+  end
+
   return store
 end
 

@@ -90,6 +90,10 @@ function _M.run()
       and table.concat(dec.headers["x-multi"]) == "ab"
       and dec.body == e.body and dec.timestamp == 1761000000) and ok
 
+  -- fill-lock: 락 키 프리픽스는 Go("sb-lock:")와 공유된다 — 락 공간 상호운용 불변량.
+  local fill_lock = require "sonic_boom.fill_lock"
+  ok = check(r, "fill-lock 락 키 프리픽스", fill_lock.lock_key("abc") == "sb-lock:abc") and ok
+
   return ok, table.concat(r, "\n")
 end
 

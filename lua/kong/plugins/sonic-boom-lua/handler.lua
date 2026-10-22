@@ -4,6 +4,7 @@ local core_key = require "sonic_boom.key"
 local core_filter = require "sonic_boom.filter"
 local core_entry = require "sonic_boom.entry"
 local core_headers = require "sonic_boom.headers"
+local core_fill_lock = require "sonic_boom.fill_lock"
 local store_memory = require "sonic_boom.store.memory"
 local store_redis = require "sonic_boom.store.redis"
 local store_rediscluster = require "sonic_boom.store.rediscluster_store"
@@ -28,6 +29,16 @@ plugin.new_store = function(conf)
     return store_rediscluster.new(conf)
   end
   return nil
+end
+
+-- fill-lock 해제: 소유 토큰이 있을 때만 store를 만들어 해제한다. store 생성 실패는
+-- TTL 만료에 위탁된다(기본 3초).
+local function release_if_owned(conf, sb)
+  if not sb or not sb.lock_token or sb.lock_token == "" then return end
+  local store = plugin.new_store(conf)
+  if store then
+    core_fill_lock.release(store, sb.key, sb.lock_token)
+  end
 end
 
 -- 캐시 버전: Go cacheVersion()와 동일 — 설정 > CACHE_VERSION env > 플러그인 버전
@@ -148,9 +159,31 @@ function plugin:access(conf)
   }, version)
   kong.response.set_header("X-Cache-Key", key)
 
-  -- ---- 저장소 조회(U4 장착 전까지 store=nil → 항상 Miss) ----
+  -- ---- 저장소 조회 ----
   local store = plugin.new_store(conf)
   local raw = store and store.get(key)
+
+  if not raw then
+    -- fill-lock: 미스 시점 승자 선출과 패자 대기(internal/fill_lock.go 계약 미러).
+    -- 패자가 기한 내 값을 받으면 같은 판정 블록으로 흘러간다.
+    local won, filled, tok = true, nil, ""
+    if store then
+      won, filled, tok = core_fill_lock.or_wait(store, key, conf.fill_lock)
+    end
+    if filled then
+      raw = filled -- 더블체크·패자 대기 성공 — 아래 공용 판정 블록으로
+    elseif won then
+      -- 승자: 해제 책임은 sb_signal.lock_token으로 응답 페이즈에 있다
+      kong.ctx.plugin.sb_signal = { key = key, ttl = ttl, lock_token = tok }
+      kong.response.set_header("X-Cache-Status", "Miss")
+      return
+    else
+      -- 패자 기한 초과 통과 — 저장은 하되 해제는 없다(Go Winner=false와 동일)
+      kong.ctx.plugin.sb_signal = { key = key, ttl = ttl }
+      kong.response.set_header("X-Cache-Status", "Miss")
+      return
+    end
+  end
 
   if raw then
     local entry, derr = core_entry.decode(raw)
@@ -239,7 +272,13 @@ function plugin:header_filter(conf)
 
   local ok, reason = storable_response(conf)
   if not ok then
-    kong.ctx.plugin.sb_signal = nil
+    -- 해제는 log 타이머로 미룬다 — header_filter에선 cosocket이 금지돼 있다.
+    -- 소유 토큰만 남은 release-only 신호로 바꿔 놓는다(body_filter가 저장을 시도하지 않게).
+    if sb.lock_token and sb.lock_token ~= "" then
+      kong.ctx.plugin.sb_signal = { key = sb.key, ttl = sb.ttl, lock_token = sb.lock_token, release_only = true }
+    else
+      kong.ctx.plugin.sb_signal = nil
+    end
     kong.response.set_header("X-Cache-Status", "Bypass")
     kong.log.notice(PREFIX .. "response not storable, bypassing store: ", reason)
     return
@@ -254,6 +293,7 @@ function plugin:header_filter(conf)
     local store = plugin.new_store(conf)
     if store and store.sync then
       store_entry(conf, sb, "")
+      release_if_owned(conf, sb) -- sync store는 shdict뿐이라 header_filter에서도 해제 가능
       kong.ctx.plugin.sb_signal = nil
     else
       sb.body = ""
@@ -266,14 +306,19 @@ end
 
 function plugin:body_filter(conf)
   local sb = kong.ctx.plugin.sb_signal
-  if not sb then return end
+  if not sb or sb.release_only then return end
 
   local chunk, eof = ngx.arg[1], ngx.arg[2]
   if chunk and #chunk > 0 then
     local size = (sb.size or 0) + #chunk
     if conf.cacheable_body_max_size > 0 and size > conf.cacheable_body_max_size then
       -- Go와 같은 '>' 경계. 초과 시 수집을 중단하고 저장하지 않는다(잘린 body 저장 금지).
-      kong.ctx.plugin.sb_signal = nil
+      -- 해제는 log 타이머로 — body_filter에선 cosocket이 금지돼 있다.
+      if sb.lock_token and sb.lock_token ~= "" then
+        kong.ctx.plugin.sb_signal = { key = sb.key, ttl = sb.ttl, lock_token = sb.lock_token, release_only = true }
+      else
+        kong.ctx.plugin.sb_signal = nil
+      end
       ngx.log(ngx.INFO, PREFIX .. "body exceeds cacheable_body_max_size, not storing key=", sb.key)
       return
     end
@@ -286,6 +331,7 @@ function plugin:body_filter(conf)
     local store = plugin.new_store(conf)
     if store and store.sync then
       store_entry(conf, sb, sb.buf and table.concat(sb.buf) or "")
+      release_if_owned(conf, sb)
       kong.ctx.plugin.sb_signal = nil
     else
       -- redis/cluster: cosocket이 body_filter에서 금지라 log 단계 timer로 저장을 미룬다.
@@ -300,24 +346,38 @@ end
 
 function plugin:log(conf)
   local sb = kong.ctx.plugin.sb_signal
-  if not sb or not sb.body then return end
+  if not sb then return end
   kong.ctx.plugin.sb_signal = nil
 
+  -- 본문 저장(redis/cluster의 log 단계 timer 저장)과 fill-lock 해제를 한 타이머로
+  -- 처리한다. 해제는 저장이 보인 뒤에 — 비워 둔 창을 패자 폴링이 미스로 보지 않게.
+  -- release-only 신호(비저장 경로)는 해제만 수행한다.
   local payload = {
-    key = sb.key, ttl = sb.ttl, body = sb.body, headers = sb.headers or {},
+    key = sb.key, ttl = sb.ttl, body = sb.body, headers = sb.headers,
     status = sb.status, version = sb.version, timestamp = sb.timestamp,
+    lock_token = sb.lock_token, store_it = sb.body ~= nil,
   }
+  if not payload.store_it and not (payload.lock_token and payload.lock_token ~= "") then
+    return
+  end
 
   local ok, err = ngx.timer.at(0, function(premature)
     if premature then return end
     local store = plugin.new_store(conf)
     if not store then return end
-    store.set(payload.key, core_entry.encode({
-      status = payload.status, headers = payload.headers, body = payload.body,
-      timestamp = payload.timestamp, version = payload.version, ttl = payload.ttl,
-    }), payload.ttl)
+    if payload.store_it then
+      store.set(payload.key, core_entry.encode({
+        status = payload.status, headers = payload.headers or {}, body = payload.body,
+        timestamp = payload.timestamp, version = payload.version, ttl = payload.ttl,
+      }), payload.ttl)
+    end
+    if payload.lock_token and payload.lock_token ~= "" then
+      core_fill_lock.release(store, payload.key, payload.lock_token)
+    end
   end)
   if not ok then
+    -- 타이머 실패 시 저장·해제 모두 포기 — 락은 TTL 만료가 푼다(log 컨텍스트도
+    -- cosocket이 금지라 여기서 직접 해제할 수 없다).
     ngx.log(ngx.WARN, "sonic-boom-lua product=kong-lua: timer creation failed, not storing key=",
       sb.key, " err=", err)
   end

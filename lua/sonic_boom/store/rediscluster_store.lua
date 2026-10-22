@@ -67,6 +67,20 @@ function _M.new(conf)
     return ok
   end
 
+  -- setnx: SET EX NX를 fork 범용 커맨드 디스패치로 시도한다.
+  -- shortcut: cluster SET NX via fork generic dispatch, verified by e2e round-trip;
+  -- fallback = fail-open, when NX runtime verification fails(smoke_lua_rediscluster).
+  function store.setnx(key, value, ttl)
+    local ok, res, err = pcall(function() return rc:set(key, value, "EX", ttl, "NX") end)
+    if not ok then
+      ngx.log(ngx.WARN, PREFIX, "cluster setnx error (fail-open): ", tostring(res))
+      return nil, tostring(res)
+    end
+    if res == "OK" then return true end
+    if res == ngx.null or res == false then return false end
+    return nil, err
+  end
+
   return store
 end
 

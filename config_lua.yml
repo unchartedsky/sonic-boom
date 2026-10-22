@@ -190,6 +190,90 @@ services:
           redis_cluster:
             addrs: ["redis-cluster:7000"]
 
+  # fill-lock 토글 라우트 쌍 — config_v1.yml의 /redis-nolock·/redis-stampede 미러.
+  # stampede는 /api/big(약 9초 fill)이라 대기 상한을 fill보다 길게(15s) 둔다.
+  - host: mock-upstream
+    name: example-lua-redis-nolock
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-redis-nolock
+        paths:
+          - /lua-redis-nolock
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: redis
+          fill_lock:
+            enabled: false
+          redis:
+            host: redis
+            port: 6379
+            db_number: 3
+
+  - host: mock-upstream
+    name: example-lua-redis-stampede
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-redis-stampede
+        paths:
+          - /lua-redis-stampede
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 60
+          cacheable_body_max_size: 1000000
+          strategy: redis
+          fill_lock:
+            enabled: true
+            ttl_ms: 30000
+            wait_ms: 15000
+          redis:
+            host: redis
+            port: 6379
+            db_number: 4
+
+  # 클러스터 fill-lock 검증용 — fork 범용 디스패치의 SET NX를 종단간으로 검증한다
+  # (실패 시 fail-open이라, 이 라우트의 버스트 단언이 유일한 가드다).
+  - host: mock-upstream
+    name: example-lua-cluster-stampede
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-cluster-stampede
+        paths:
+          - /lua-cluster-stampede
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 60
+          cacheable_body_max_size: 1000000
+          strategy: redis-cluster
+          fill_lock:
+            enabled: true
+            ttl_ms: 30000
+            wait_ms: 15000
+          redis_cluster:
+            addrs: ["redis-cluster:7000"]
+
   - host: mock-upstream
     name: example-lua-redis-cluster-vary
     port: 80

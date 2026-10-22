@@ -1,5 +1,5 @@
 -- KTD7: 구현된 동작의 Go Config 필드만 선언한다.
--- 미포함 동작 필드(fill_lock, client_side_cache, log, cache_control)는 의도적 미선언 —
+-- 미포함 동작 필드(client_side_cache, log, cache_control)는 의도적 미선언 —
 -- 설정에 나오면 알 수 없는 필드로 선언형 로드가 거부된다(침묵의 차이 방지).
 return {
   name = "sonic-boom-lua",
@@ -89,6 +89,16 @@ return {
                 { read_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
                 { write_timeout = { type = "integer", between = { 1, 2147483647 }, default = 3 } },
                 { idle_timeout = { type = "integer", between = { 1, 2147483647 }, default = 1 } },
+              },
+          } },
+          { fill_lock = {
+              -- internal/fill_lock.go Config 미러 — 기본 on(Go와 동일).
+              type = "record",
+              default = { enabled = true, ttl_ms = 3000, wait_ms = 200 },
+              fields = {
+                { enabled = { type = "boolean", default = true } },
+                { ttl_ms = { type = "integer", between = { 0, 2147483647 }, default = 3000 } },
+                { wait_ms = { type = "integer", between = { 0, 2147483647 }, default = 200 } },
               },
           } },
         },

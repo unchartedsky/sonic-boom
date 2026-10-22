@@ -33,7 +33,7 @@
 
 | 순서 | 항목 | 근거/비고 |
 |---|---|---|
-| 1 | fill-lock(스탬피드 완화) | Go는 기본 on — 운영 동등성에 가장 먼저 필요. Lua 구현은 resty.lock 단일 비행 |
+| 1 | ~~fill-lock(스탬피드 완화)~~ **완료(U4, 2026-10-22)** | `lua/sonic_boom/fill_lock.lua`가 internal/fill_lock.go를 미러링. in-memory는 shdict add, redis는 SET NX, 클러스터는 fork 범용 디스패치(종단간 버스트 단언이 가드 — 실패 시 fail-open). resty.lock은 미채택(노드 로컬) |
 | 2 | 캐시 판정 메트릭 파이프라인 | Go 로드맵 U2 상당. Lua는 prometheus 플러그인 레지스트리 확장 |
 | 3 | span 속성 관측성 | R8 확장 — Kong tracing / APISIX apisix.tracer |
 | 4 | 클러스터 ACL 런타임 실측 | 무인증 클러스터에 ACL 노드 1개 켜고 AUTH 왕복 |
