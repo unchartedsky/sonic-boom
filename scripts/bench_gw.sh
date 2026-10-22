@@ -90,7 +90,7 @@ if [[ "${BENCH_PAIR:-go-lua}" == "lua-apisix" ]]; then
 fi
 
 # 준비: 스택 기동 + hit 캐시 데우기 + 캐시 비움(miss 라우트는 자체 미저장)
-docker compose --profile lua up -d --wait >/dev/null 2>&1
+docker compose --profile lua up -d --build --wait >/dev/null 2>&1
 for _ in $(seq 1 30); do
 	if curl -sf -o /dev/null http://localhost:8000/in-memory/api/users?warm && \
 	   curl -sf -o /dev/null http://localhost:8010/lua-in-memory/api/users?warm; then
