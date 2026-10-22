@@ -831,14 +831,23 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	// ProxyCacheHandler:header_filter — 이 요청의 카운터는 Access에서 이미
 	// 기록됐다(Miss/Bypass). 여기선 최종 헤더만 바꾼다(#10 이중 계산 방지).
-	// 응답 헤더를 먼저 읽는다 — 저장 금지 응답 헤더(Set-Cookie) 게이트 판정에
-	// 필요하다. 읽기 실패는 판정 불가 = 캐시 불가로 본다(fail-closed).
+	// 값비싼 헤더 읽기(PDK 브리지 왕복) 전에 저렴한 status·content-type 게이트를
+	// 먼저 본다 — 탈락 응답은 헤더 비용 없이 Bypass로 돌아간다.
+	if !conf.cacheableResponseStatus(kong) || !conf.cacheableResponseContentType(kong) {
+		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
+			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
+			return
+		}
+		return
+	}
+	// 저장 금지 응답 헤더(Set-Cookie·Cache-Control) 판정에 헤더가 필요하다.
+	// 읽기 실패는 판정 불가 = 캐시 불가로 본다(fail-closed).
 	headers, err := kong.Response.GetHeaders(1000)
 	if err != nil {
 		logger.Error().Err(err).Msg("Getting response headers failed")
 		headers = nil
 	}
-	if !conf.cacheableResponse(kong, headers) {
+	if !cacheableResponseHeaders(headers) {
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
