@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# U6 재생 비교 — 같은 순차 요청 묶음을 Go(:8000)와 Lua(:8010)에 재생해
+# 재생 비교 — 같은 순차 요청 묶음을 두 게이트웨이에 재생해
 # X-Cache-Status 시퀀스·HTTP status·body(sha256 접두) 일치를 증명한다.
+# 쌍(PARITY_PAIR): go-lua(기본, Go :8000 ↔ Kong-Lua :8010) | lua-apisix(Kong-Lua :8010 ↔ APISIX :8020).
+# lua-apisix는 같은 코어·같은 /lua-* 경로를 쓰므로 A측도 lua 경로로 재생한다.
 # 구 명시 차이(R4 Set-Cookie)는 Go 역포팅으로 해소됐다 — S8은 이제 공통 동작 검증이다.
 # 범위: redis 전략 라우트 기준(R7). X-Cache-Key·Age 값은 제품별 파생이라 비교 제외하되
 # Age는 Hit에 존재하고 증가한다(갱신 조건 정합, R5).
@@ -8,19 +10,29 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/common.sh
 
-GO=http://localhost:8000
-LUA=http://localhost:8010
+PARITY_PAIR="${PARITY_PAIR:-go-lua}"
+case "${PARITY_PAIR}" in
+	go-lua) A=http://localhost:8000 B=http://localhost:8010 A_TAG=go B_TAG=lua ;;
+	lua-apisix) A=http://localhost:8010 B=http://localhost:8020 A_TAG=kong-lua B_TAG=apisix ;;
+	*) echo "FAIL: 알 수 없는 PARITY_PAIR='${PARITY_PAIR}' (go-lua|lua-apisix)" >&2; exit 1 ;;
+esac
+# A측 재생 경로: go-lua는 Go 경로, lua-apisix는 B측과 같은 lua 경로.
+a_path() { [[ "${PARITY_PAIR}" == lua-apisix ]] && echo "$2" || echo "$1"; }
 
-# 초기화: 양쪽 캐시 비움(Go redis 전 db + Lua shdict·redis)
+# 초기화: 양쪽 캐시 비움(redis 전 db + 게이트웨이 재기동으로 shdict)
 docker compose exec -T redis redis-cli FLUSHALL >/dev/null
 docker compose --profile lua restart kong-lua >/dev/null
-docker compose restart kong >/dev/null
+if [[ "${PARITY_PAIR}" == lua-apisix ]]; then
+	docker compose --profile apisix restart apisix >/dev/null
+else
+	docker compose restart kong >/dev/null
+fi
 sleep 8
-wait_for_kong "$GO"; wait_for_kong "$LUA"
+wait_for_kong "$A"; wait_for_kong "$B"
 # 재시작 직후 워커 교체 경합 방지: 게이트웨이별 실제 캐시 라우트 왕복이 안정될 때까지 대기
 for _ in $(seq 1 20); do
-	g="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$GO/redis/api/users?warm" || true)"
-	l="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$LUA/lua-redis/api/users?warm" || true)"
+	g="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$A$(a_path /redis/api/users /lua-redis/api/users)?warm" || true)"
+	l="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$B/lua-redis/api/users?warm" || true)"
 	[[ "$g" == 200 && "$l" == 200 ]] && break
 	sleep 1
 done
@@ -40,27 +52,27 @@ hit() { # <tag> <base> <method> <path> [curl opts...]
 
 pair() { # <이름> <기대 xcs> <method> <go_path> <lua_path> [opts...] — 양쪽 xcs=기대, status·body 일치
 	local name="$1" want="$2" method="$3" gpath="$4" lpath="$5"; shift 5
-	hit go "$GO" "$method" "$gpath" "$@"
-	hit lua "$LUA" "$method" "$lpath" "$@"
+	hit go "$A" "$method" "$(a_path "$gpath" "$lpath")" "$@"
+	hit lua "$B" "$method" "$lpath" "$@"
 	local gr lr; gr="$(cat "${TMPD}/go.res")"; lr="$(cat "${TMPD}/lua.res")"
 	local gxs lxs; gxs="$(cut -d'|' -f2 <<<"$gr")"; lxs="$(cut -d'|' -f2 <<<"$lr")"
-	echo "  ${name}: go=[${gr}] lua=[${lr}] (기대 ${want})"
-	[[ "$gxs" == "$want" && "$lxs" == "$want" ]] || { echo "FAIL: ${name} xcs go=${gxs} lua=${lxs} want=${want}" >&2; exit 1; }
+	echo "  ${name}: ${A_TAG}=[${gr}] ${B_TAG}=[${lr}] (기대 ${want})"
+	[[ "$gxs" == "$want" && "$lxs" == "$want" ]] || { echo "FAIL: ${name} xcs ${A_TAG}=${gxs} ${B_TAG}=${lxs} want=${want}" >&2; exit 1; }
 	[[ "$(cut -d'|' -f1,3 <<<"$gr")" == "$(cut -d'|' -f1,3 <<<"$lr")" ]] || { echo "FAIL: ${name} status/body 불일치" >&2; exit 1; }
 }
 
 pairdiv() { # <이름> <go기대> <lua기대> <method> <go_path> <lua_path> [opts...]
 	local name="$1" gw="$2" lw="$3" method="$4" gpath="$5" lpath="$6"; shift 6
-	hit go "$GO" "$method" "$gpath" "$@"
-	hit lua "$LUA" "$method" "$lpath" "$@"
+	hit go "$A" "$method" "$(a_path "$gpath" "$lpath")" "$@"
+	hit lua "$B" "$method" "$lpath" "$@"
 	local gr lr; gr="$(cat "${TMPD}/go.res")"; lr="$(cat "${TMPD}/lua.res")"
-	echo "  ${name}: go=[${gr}] lua=[${lr}] (기대 go=${gw} lua=${lw})"
+	echo "  ${name}: ${A_TAG}=[${gr}] ${B_TAG}=[${lr}] (기대 ${A_TAG}=${gw} ${B_TAG}=${lw})"
 	[[ "$(cut -d'|' -f2 <<<"$gr")" == "$gw" && "$(cut -d'|' -f2 <<<"$lr")" == "$lw" ]] || { echo "FAIL: ${name} 분기 기대 위반" >&2; exit 1; }
 }
 
 age_of() { awk -F': ' 'tolower($1)=="age"{sub(/\r$/,"");print $2}' "${TMPD}/$1.hdr" | head -1; }
 
-echo "== U6 재생 비교 (redis 전략 범위, Go=route-redis 기본 설정·fill-lock 켬) =="
+echo "== 재생 비교 ${PARITY_PAIR} (redis 전략 범위, 기본 설정·fill-lock 켬) =="
 
 # S1 fresh Miss → Hit
 pair "S1-1 첫 요청"  Miss   GET "/redis/api/users?pr=s1" "/lua-redis/api/users?pr=s1"
@@ -107,19 +119,24 @@ pair "S12 no-cache" Bypass GET "/go-setcookie/ccnocache/api/users?pr=s12" "/lua-
 
 # S13 cache_control 요청 가드 — Go 전용 옵트인(Lua는 cache_control을 스키마에서
 # 거부한다, R4 명시 차이 2). Authorization 요청은 매번 Bypass다.
-hit go "$GO" GET "/cache-control/api/users?pr=s13" -H "$A1"
-hit go "$GO" GET "/cache-control/api/users?pr=s13" -H "$A1"
-echo "  S13 가드: go=[$(cat "${TMPD}/go.res")] (기대 Bypass×2)"
-[[ "$(cut -d'|' -f2 <<<"$(cat "${TMPD}/go.res")")" == "Bypass" ]] || { echo "FAIL: S13 cache_control 가드" >&2; exit 1; }
+if [[ "${PARITY_PAIR}" == go-lua ]]; then
+	hit go "$A" GET "/cache-control/api/users?pr=s13" -H "$A1"
+	hit go "$A" GET "/cache-control/api/users?pr=s13" -H "$A1"
+	echo "  S13 가드: go=[$(cat "${TMPD}/go.res")] (기대 Bypass×2)"
+	[[ "$(cut -d'|' -f2 <<<"$(cat "${TMPD}/go.res")")" == "Bypass" ]] || { echo "FAIL: S13 cache_control 가드" >&2; exit 1; }
+else
+	echo "  S13 가드: 건너뜀(Go 전용 — 두 Lua 게이트웨이 모두 cache_control을 스키마에서 거부)"
+fi
 
 # S9 Age 존재·증가(갱신 조건 정합) — 신선한 키를 데운 뒤 두 Hit로 관측
-hit go "$GO" GET "/redis/api/users?pr=s9"; hit go "$GO" GET "/redis/api/users?pr=s9"; ga1="$(age_of go)"
-hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; la1="$(age_of lua)"
-[[ -n "${ga1:-}" && -n "${la1:-}" ]] || { echo "FAIL: Hit에 Age 없음 (go=${ga1:-none} lua=${la1:-none})" >&2; exit 1; }
+S9A="$(a_path /redis/api/users /lua-redis/api/users)?pr=s9"
+hit go "$A" GET "$S9A"; hit go "$A" GET "$S9A"; ga1="$(age_of go)"
+hit lua "$B" GET "/lua-redis/api/users?pr=s9"; hit lua "$B" GET "/lua-redis/api/users?pr=s9"; la1="$(age_of lua)"
+[[ -n "${ga1:-}" && -n "${la1:-}" ]] || { echo "FAIL: Hit에 Age 없음 (${A_TAG}=${ga1:-none} ${B_TAG}=${la1:-none})" >&2; exit 1; }
 sleep 2
-hit go "$GO" GET "/redis/api/users?pr=s9"; ga2="$(age_of go)"
-hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; la2="$(age_of lua)"
-echo "  S9 Age: go ${ga1}→${ga2}, lua ${la1}→${la2}"
-[[ -n "${ga2:-}" && "${ga2}" -gt "${ga1}" ]] || { echo "FAIL: Go Age 증가 없음" >&2; exit 1; }
-[[ -n "${la2:-}" && "${la2}" -gt "${la1}" ]] || { echo "FAIL: Lua Age 증가 없음" >&2; exit 1; }
-echo "OK: [parity] redis 전략 범위 — 시퀀스·status·body 일치"
+hit go "$A" GET "$S9A"; ga2="$(age_of go)"
+hit lua "$B" GET "/lua-redis/api/users?pr=s9"; la2="$(age_of lua)"
+echo "  S9 Age: ${A_TAG} ${ga1}→${ga2}, ${B_TAG} ${la1}→${la2}"
+[[ -n "${ga2:-}" && "${ga2}" -gt "${ga1}" ]] || { echo "FAIL: ${A_TAG} Age 증가 없음" >&2; exit 1; }
+[[ -n "${la2:-}" && "${la2}" -gt "${la1}" ]] || { echo "FAIL: ${B_TAG} Age 증가 없음" >&2; exit 1; }
+echo "OK: [parity ${PARITY_PAIR}] redis 전략 범위 — 시퀀스·status·body 일치"
