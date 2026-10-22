@@ -13,7 +13,7 @@ GOARCH ?= $(shell uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)
 COMPOSE ?= docker compose
 export COMPOSE # stress_scenarios.sh가 같은 compose 인자(-p 등)를 따라가게
 
-.PHONY: build test e2e e2e-lua stress clean
+.PHONY: build test e2e e2e-lua e2e-apisix stress clean
 
 .ONESHELL:
 SHELL := /bin/bash
@@ -53,6 +53,16 @@ e2e-lua:
 	./scripts/smoke_lua_redis.sh
 	./scripts/smoke_lua_rediscluster.sh
 	$(COMPOSE) --profile lua down -v --remove-orphans
+
+# APISIX 어댑터 e2e — kong-lua와 같은 스모크 3종을 GW=apisix로 돌린다(같은 코어·같은 /lua-* 경로).
+# Kong-Lua와 포트(8010/8020)·프로필이 달라 같은 러너에서 독립 실행된다.
+e2e-apisix:
+	$(COMPOSE) --profile apisix up -d --build --wait apisix mock-upstream redis cluster-init
+	curl -fsS 'http://localhost:8020/selfcheck/x' >/dev/null
+	GW=apisix ./scripts/smoke_lua_in_memory.sh
+	GW=apisix ./scripts/smoke_lua_redis.sh
+	GW=apisix ./scripts/smoke_lua_rediscluster.sh
+	$(COMPOSE) --profile apisix down -v --remove-orphans
 
 stress: build
 	$(compose_reset)

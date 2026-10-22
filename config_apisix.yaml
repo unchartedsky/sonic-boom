@@ -100,6 +100,179 @@ routes:
       sonic-boom-lua:
         strategy: in-memory
 
+  - id: lua-redis
+    uri: /lua-redis/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
+  - id: lua-redis-vary
+    uri: /lua-redis-vary/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-vary(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
+  - id: lua-redis-cluster
+    uri: /lua-redis-cluster/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-cluster(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  - id: lua-redis-cluster-vary
+    uri: /lua-redis-cluster-vary/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-cluster-vary(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  # fill-lock 토글 라우트 쌍 — config_lua.yml의 /lua-redis-nolock·/lua-redis-stampede 미러.
+  # stampede는 /api/big(약 9초 fill)이라 대기 상한을 fill보다 길게(15s) 둔다.
+  - id: lua-redis-nolock
+    uri: /lua-redis-nolock/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-nolock(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: false
+        redis:
+          host: redis
+          port: 6379
+          db_number: 3
+
+  - id: lua-redis-stampede
+    uri: /lua-redis-stampede/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-redis-stampede(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 60
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        fill_lock:
+          enabled: true
+          ttl_ms: 30000
+          wait_ms: 15000
+        redis:
+          host: redis
+          port: 6379
+          db_number: 4
+
+  # 클러스터 fill-lock 검증용 — fork 범용 디스패치의 SET NX를 종단간으로 검증한다.
+  - id: lua-cluster-stampede
+    uri: /lua-cluster-stampede/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-cluster-stampede(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 60
+        cacheable_body_max_size: 1000000
+        strategy: redis-cluster
+        fill_lock:
+          enabled: true
+          ttl_ms: 30000
+          wait_ms: 15000
+        redis_cluster:
+          addrs: ["redis-cluster:7000"]
+
+  # Go example(/ex) 필터 미러 — 재생 비교 S5용(필터 룰·TTL 동일)
+  - id: lua-filter
+    uri: /lua-filter/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-filter(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization, Accept-Encoding, Accept-Language]
+        filters:
+          - name: path and header
+            rules:
+              - regexp: ".*page=\\(.*\\).*"
+              - header: Authorization
+                regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+            cache_ttl: 30
+          - name: path
+            rules:
+              - regexp: ".*page=\\(.*\\).*"
+            cache_ttl: 30
+          - name: header
+            rules:
+              - header: Authorization
+                regexp: ".*dXNlcm5hbWU6cGFzc3dvcmQ=.*"
+            cache_ttl: 30
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: redis
+        redis:
+          host: redis
+          port: 6379
+
   # 스키마 거부 검증: 미구현 필드 cache_control은 additionalProperties=false로 거부된다.
   # APISIX standalone은 항목 단위로 건너뛰므로 이 라우트만 404가 되고 나머지는 산다.
   - id: lua-schema-reject
