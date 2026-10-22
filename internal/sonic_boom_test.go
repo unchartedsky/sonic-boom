@@ -131,6 +131,7 @@ func TestConfig_cacheableResponse(t *testing.T) {
 		name          string
 		responseCodes []int
 		contentTypes  []string
+		headers       map[string][]string
 		status        int
 		contentType   string
 		want          bool
@@ -139,6 +140,7 @@ func TestConfig_cacheableResponse(t *testing.T) {
 			name:          "status와 content-type 모두 허용",
 			responseCodes: []int{200, 301, 404},
 			contentTypes:  []string{"application/json", "text/plain"},
+			headers:       map[string][]string{"Content-Type": {"application/json"}},
 			status:        200,
 			contentType:   "application/json",
 			want:          true,
@@ -147,6 +149,7 @@ func TestConfig_cacheableResponse(t *testing.T) {
 			name:          "status 미허용이면 false",
 			responseCodes: []int{200},
 			contentTypes:  []string{"application/json"},
+			headers:       map[string][]string{},
 			status:        500,
 			contentType:   "application/json",
 			want:          false,
@@ -155,8 +158,27 @@ func TestConfig_cacheableResponse(t *testing.T) {
 			name:          "content-type이 비면 false",
 			responseCodes: []int{200},
 			contentTypes:  []string{"application/json"},
+			headers:       map[string][]string{},
 			status:        200,
 			contentType:   "",
+			want:          false,
+		},
+		{
+			name:          "Set-Cookie 응답은 저장하지 않는다",
+			responseCodes: []int{200},
+			contentTypes:  []string{"application/json"},
+			headers:       map[string][]string{"Set-Cookie": {"sid=abc"}},
+			status:        200,
+			contentType:   "application/json",
+			want:          false,
+		},
+		{
+			name:          "응답 헤더 읽기 실패는 캐시 불가(fail-closed)",
+			responseCodes: []int{200},
+			contentTypes:  []string{"application/json"},
+			headers:       nil,
+			status:        200,
+			contentType:   "application/json",
 			want:          false,
 		},
 	}
@@ -167,16 +189,46 @@ func TestConfig_cacheableResponse(t *testing.T) {
 				ContentTypes:  tt.contentTypes,
 				logger:        defaultLogger(),
 			}
+			// 헤더 읽기 실패 케이스는 get_headers가 에러를 돌려준다.
+			var headerSteps []bridgetest.MockStep
+			if tt.headers != nil {
+				h, err := bridge.WrapHeaders(tt.headers)
+				if err != nil {
+					t.Fatal(err)
+				}
+				headerSteps = []bridgetest.MockStep{{Method: "kong.response.get_headers", Ret: h}}
+			}
 			kong := &pdk.PDK{
-				Response: response.Response{PdkBridge: bridge.New(bridgetest.Mock(t, []bridgetest.MockStep{
+				Response: response.Response{PdkBridge: bridge.New(bridgetest.Mock(t, append([]bridgetest.MockStep{
 					{Method: "kong.response.get_status", Ret: &kong_plugin_protocol.Int{V: int32(tt.status)}},
-				}))},
+				}, headerSteps...)))},
 				Nginx: nginx.Nginx{PdkBridge: bridge.New(bridgetest.Mock(t, []bridgetest.MockStep{
 					{Method: "kong.nginx.get_var", Args: bridge.WrapString("sent_http_content_type"), Ret: bridge.WrapString(tt.contentType)},
 				}))},
 			}
-			if got := conf.cacheableResponse(kong); got != tt.want {
+			if got := conf.cacheableResponse(kong, tt.headers); got != tt.want {
 				t.Errorf("cacheableResponse() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_cacheableResponseHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string][]string
+		want    bool
+	}{
+		{name: "nil이면 캐시 불가", headers: nil, want: false},
+		{name: "빈 헤더는 캐시 가능", headers: map[string][]string{}, want: true},
+		{name: "Set-Cookie 있으면 캐시 불가", headers: map[string][]string{"Set-Cookie": {"sid=abc"}}, want: false},
+		{name: "헤더 키 대소문자 무관", headers: map[string][]string{"set-cookie": {"sid=abc"}}, want: false},
+		{name: "무관한 헤더는 캐시 가능", headers: map[string][]string{"X-Foo": {"bar"}}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cacheableResponseHeaders(tt.headers); got != tt.want {
+				t.Errorf("cacheableResponseHeaders() = %v, want %v", got, tt.want)
 			}
 		})
 	}

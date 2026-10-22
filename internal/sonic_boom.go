@@ -826,7 +826,14 @@ func (conf *Config) Response(kong *pdk.PDK) {
 
 	// ProxyCacheHandler:header_filter — 이 요청의 카운터는 Access에서 이미
 	// 기록됐다(Miss/Bypass). 여기선 최종 헤더만 바꾼다(#10 이중 계산 방지).
-	if !conf.cacheableResponse(kong) {
+	// 응답 헤더를 먼저 읽는다 — 저장 금지 응답 헤더(Set-Cookie) 게이트 판정에
+	// 필요하다. 읽기 실패는 판정 불가 = 캐시 불가로 본다(fail-closed).
+	headers, err := kong.Response.GetHeaders(1000)
+	if err != nil {
+		logger.Error().Err(err).Msg("Getting response headers failed")
+		headers = nil
+	}
+	if !conf.cacheableResponse(kong, headers) {
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
@@ -835,11 +842,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	}
 
 	// ProxyCacheHandler:body_filter
-	headers, err := kong.Response.GetHeaders(1000)
-	if err != nil {
-		logger.Error().Err(err).Msg("Getting response headers failed")
-		return
-	}
 	if conf.isDebug() {
 		for k, v := range headers {
 			logger.Debug().Msgf("Response header: %s: %s", k, v)
@@ -889,7 +891,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	logger.Debug().Msgf("Cache set: %s", cacheKeyID)
 }
 
-func (conf *Config) cacheableResponse(kong *pdk.PDK) bool {
+func (conf *Config) cacheableResponse(kong *pdk.PDK, headers map[string][]string) bool {
 	if !conf.cacheableResponseStatus(kong) {
 		return false
 	}
@@ -898,6 +900,27 @@ func (conf *Config) cacheableResponse(kong *pdk.PDK) bool {
 		return false
 	}
 
+	if !cacheableResponseHeaders(headers) {
+		return false
+	}
+
+	return true
+}
+
+// cacheableResponseHeaders 은 저장 금지 응답 헤더를 판정한다. Set-Cookie가
+// 있으면 저장하지 않는다 — 개인화 응답 오염 방지(APISIX proxy-cache 기본값
+// 정합, docs/solutions/architecture-patterns/proxy-cache-principal-key-isolation.md).
+// 헤더 키는 go-pdk가 대소문자를 정규화하지 않아 무시 대소문자로 비교한다.
+// headers가 nil이면(읽기 실패) 판정 불가로 캐시 불가다.
+func cacheableResponseHeaders(headers map[string][]string) bool {
+	if headers == nil {
+		return false
+	}
+	for k, vs := range headers {
+		if strings.EqualFold(k, "set-cookie") && len(vs) > 0 {
+			return false
+		}
+	}
 	return true
 }
 
@@ -935,16 +958,6 @@ func (conf *Config) cacheableResponseContentType(kong *pdk.PDK) bool {
 			return true
 		}
 	}
-
-	// TODO cache control은 나중에 구현하자
-	//if conf.cache_control and (cc["private"] or cc["no-store"] or cc["no-cache"])
-	//then
-	//	return false
-	//end
-	//
-	//if conf.cache_control and resource_ttl(cc) <= 0 then
-	//	return false
-	//end
 
 	return false
 }

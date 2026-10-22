@@ -48,11 +48,12 @@ e2e는 외부 인터넷 없이 결정론적으로 돈다.
 
 ## 스모크 검증 항목 (`scripts/smoke_lib.sh`)
 
-각 전략(in-memory, redis, redis-cluster) 공통 6단언 + gzip suite(characterization):
+각 전략(in-memory, redis, redis-cluster) 공통 8단언 + gzip suite(characterization):
 
 1. 첫 요청 `X-Cache-Status: Miss` — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 2. 같은 키 재요청 `Hit`
 3. 캐시 불가 메서드(DELETE) `Bypass`
+3-1. Set-Cookie 응답 `Bypass`(재요청 포함 2회) — 저장 게이트가 미스 시그널을 저장하지 않고 Bypass로 되돌린다
 4. vary 헤더: `Authorization` 자격증명별 첫 요청 `Miss`
 5. 같은 자격증명 재요청 `Hit`
 6. 다른 자격증명은 다른 캐시 키로 `Miss`

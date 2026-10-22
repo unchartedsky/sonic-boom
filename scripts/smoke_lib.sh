@@ -211,6 +211,12 @@ main() {
 	# 3) 캐시 불가 메서드(DELETE)는 Bypass
 	assert_status Bypass "$(status_of "$(curl_h -X DELETE "${URL}")")" "DELETE"
 
+	# 3-1) Set-Cookie 응답은 저장하지 않는다(개인화 오염 방지 — APISIX 기본값 정합).
+	# 첫 요청이 Miss 시그널로 출발해도 저장 게이트에서 Bypass로 바뀐다.
+	local sc_url="${BASE}${ROUTE}/setcookie/api/users?page=sc1"
+	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 응답 미저장"
+	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 재요청"
+
 	# 4) vary_headers: Authorization 값이 다르면 캐시 키가 분리된다
 	local auth1="dXNlcm5hbWU6cGFzc3dvcmQ="
 	local auth2="dXNlcm5hbWU6cGFzc3dvcmQy"

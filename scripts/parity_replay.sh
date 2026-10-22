@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # U6 재생 비교 — 같은 순차 요청 묶음을 Go(:8000)와 Lua(:8010)에 재생해
 # X-Cache-Status 시퀀스·HTTP status·body(sha256 접두) 일치를 증명한다.
-# 명시 차이(R4): Set-Cookie 응답은 Go 저장 / Lua Bypass — S8이 문서화된 분기다.
+# 구 명시 차이(R4 Set-Cookie)는 Go 역포팅으로 해소됐다 — S8은 이제 공통 동작 검증이다.
 # 범위: redis 전략 라우트 기준(R7). X-Cache-Key·Age 값은 제품별 파생이라 비교 제외하되
 # Age는 Hit에 존재하고 증가한다(갱신 조건 정합, R5).
 set -euo pipefail
@@ -96,9 +96,9 @@ pair "S6-4 재저장"  Hit  GET "/redis/api/users?pr=s6" "/lua-redis/api/users?p
 # S7 content_type 게이트(양쪽 목록 밖 text/xml 아님 → JSON 응답이지만 목록이 text/xml만)
 pair "S7 ctgate" Bypass GET "/go-ctgate/api/users?pr=s7" "/lua-ctgate/api/users?pr=s7"
 
-# S8 Set-Cookie 분기 — 문서화된 명시 차이(R4)
-pairdiv "S8-1 분기 첫" Miss Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
-pairdiv "S8-2 분기" Hit Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
+# S8 Set-Cookie 응답 미저장 — 구 명시 차이(R4)가 해소돼 양쪽 모두 Bypass다.
+pair "S8-1 미저장 첫" Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
+pair "S8-2 미저장 재" Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
 
 # S9 Age 존재·증가(갱신 조건 정합) — 신선한 키를 데운 뒤 두 Hit로 관측
 hit go "$GO" GET "/redis/api/users?pr=s9"; hit go "$GO" GET "/redis/api/users?pr=s9"; ga1="$(age_of go)"
@@ -110,4 +110,4 @@ hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; la2="$(age_of lua)"
 echo "  S9 Age: go ${ga1}→${ga2}, lua ${la1}→${la2}"
 [[ -n "${ga2:-}" && "${ga2}" -gt "${ga1}" ]] || { echo "FAIL: Go Age 증가 없음" >&2; exit 1; }
 [[ -n "${la2:-}" && "${la2}" -gt "${la1}" ]] || { echo "FAIL: Lua Age 증가 없음" >&2; exit 1; }
-echo "OK: [parity] redis 전략 범위 — 시퀀스·status·body 일치(명시 차이 S8 제외)"
+echo "OK: [parity] redis 전략 범위 — 시퀀스·status·body 일치"

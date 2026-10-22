@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`Set-Cookie` 응답 미저장** — 개인화 응답 오염 방지(G9). Set-Cookie 응답은 더 이상 캐시에 저장·재생되지 않고 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소).
+
 ### Fixed
 
 검증된 결함 9종 수정(전체 근거: `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md`, 계획: `docs/plans/2026-10-18-2126-fix-verified-cache-bugs-plan.md`).
