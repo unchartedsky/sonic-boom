@@ -46,6 +46,9 @@ e2e: build
 # kong-lua(sonic-boom-lua) e2e — 이미지 빌드·profile lua 기동·전략 3종 스모크.
 # 재실행 멱등은 각 스모크가 스스로 캐시를 비운다(shdict 재기동/FLUSH).
 e2e-lua:
+	# .ONESHELL은 레시피를 셸 하나로 돌려 마지막 줄 종료 코드만 남긴다 — set -e 없으면 스모크 실패가 가려진다.
+	# 실패 시 down을 건너뛰어 CI 진단 단계가 컨테이너 로그를 읽게 둔다(trap으로 내리지 않는다).
+	set -euo pipefail
 	# 서비스 명시 — 무지정 up은 Go kong(바이너리 필요)까지 띄운다. Lua 스택만.
 	$(COMPOSE) --profile lua up -d --build --wait kong-lua mock-upstream redis cluster-init
 	curl -fsS 'http://localhost:8010/selfcheck/x' >/dev/null
@@ -57,6 +60,7 @@ e2e-lua:
 # APISIX 어댑터 e2e — kong-lua와 같은 스모크 3종을 GW=apisix로 돌린다(같은 코어·같은 /lua-* 경로).
 # Kong-Lua와 포트(8010/8020)·프로필이 달라 같은 러너에서 독립 실행된다.
 e2e-apisix:
+	set -euo pipefail  # e2e-lua와 같은 이유
 	$(COMPOSE) --profile apisix up -d --build --wait apisix mock-upstream redis cluster-init
 	curl -fsS 'http://localhost:8020/selfcheck/x' >/dev/null
 	GW=apisix ./scripts/smoke_lua_in_memory.sh
