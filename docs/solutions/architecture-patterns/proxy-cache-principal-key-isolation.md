@@ -59,6 +59,8 @@ tags: [kong, apisix, cache-key, principal, consumer-isolation, authorization, se
 | Set-Cookie 응답 | 처리 없음(원본 결함을 물려받음) | 기본 미캐시(disk는 항상) | 저장·재생(G9) | 미저장(`handler.lua:209`) |
 | `private`/`no-store`/`no-cache` | `cache_control=true`일 때만 | 항상 존중 | 미흡(bake-off G9·cache_control 항목) | 미저장(R4 명시 차이 1) |
 
+> 2026-10-22 갱신: 아래 Examples 표의 sonic-boom 열은 조사 시점 기록이다. U1·U2로 Set-Cookie·private/no-store/no-cache 응답은 Go·Lua 양쪽 모두 무조건 미저장이 됐고, Authorization 가드는 U3에서 `cache_control: true` 옵트인으로 구현됐다. G8의 기본 상태(cache_control=false 무방비)는 시장 준거 경로에서 의도된 미결이다. 표는 PoC 판정 시점의 스냅샷으로 보존한다.
+
 ## Related
 
 - `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md` — G8·G9 결함, 제안 8(Authorization 가드)·9(Set-Cookie 가드), 시장 비교 표(문서 기준 키 공식)

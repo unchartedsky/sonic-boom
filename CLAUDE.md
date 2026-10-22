@@ -28,7 +28,7 @@ make stress  # 스탬피드·CSC 실측 시나리오 + 자동 단언(기대 미�
 
 ## Architecture
 
-- **두 구현**: 같은 플러그인의 Go판(`main.go`+`internal/`, go-pdk external plugin 서버)과 Lua판(`lua/`)이 있다. Lua판은 게이트웨이 중립 코어(`lua/sonic_boom/`) + Kong 어댑터(`lua/kong/plugins/sonic-boom-lua/`)로 나뉜다. Lua판은 Go판 대비 명시 차이 4건이 문서화돼 있다(`docs/kong-lua-verdict.md` — Set-Cookie·private/no-store 미저장, cache_control 스키마 거부, RE2→PCRE, 저장 시점 비동기). fill-lock은 Lua에 아직 없다(백로그 1순위).
+- **두 구현**: 같은 플러그인의 Go판(`main.go`+`internal/`, go-pdk external plugin 서버)과 Lua판(`lua/`)이 있다. Lua판은 게이트웨이 중립 코어(`lua/sonic_boom/`) + Kong 어댑터(`lua/kong/plugins/sonic-boom-lua/`)로 나뉜다. PoC 시점의 Go판 대비 명시 차이는 `docs/kong-lua-verdict.md`에 기록돼 있고, 그중 Set-Cookie·Cache-Control 디렉티브 미저장 차이는 U1·U2로(양쪽 모두 무조건 미저장), fill-lock 부재는 U4로 해소됐다. 남은 차이: cache_control 스키마 거부(Lua), RE2→PCRE, 저장 시점 비동기(redis/cluster).
 - **요청 흐름**: Access 페이즈(`Config.Access`)가 캐시 키를 만들고 캐시를 조회해 Hit면 즉시 응답하고, 아니면 캐시 시그널(`CacheSignal` — 캐시 키+TTL)을 ctx에 남긴다. Response 페이즈(`Config.Response`)는 시그널이 남아 있을 때만 저장을 시도한다. `X-Cache-Status`는 Miss/Hit/Bypass/Refresh 4상태다.
 - **캐시 키**(`cache_key.go`): service/route/consumer/method/vary 헤더/본문 등을 직렬화 후 xxhash. `sonic-boom:{version}:{hash}` 프리픽스. `cache_version` 값을 바꾸면 설정 리로드로 이전 세대가 무효화된다.
 - **전략**(`newCacheManager`): gocache 저장소 3종을 구성한다. in-memory는 ristretto(비동기 쓰기), redis·redis-cluster는 설정 값 키로 프로세스 수명 공유되는 클라이언트를 쓴다. 설정 하나는 정확히 하나의 전략을 쓴다.
