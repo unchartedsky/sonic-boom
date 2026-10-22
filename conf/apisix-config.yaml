@@ -1,0 +1,32 @@
+# sonic-boom-lua APISIX 어댑터 전용 config.yaml — 이미지에 굽는다(Dockerfile.apisix).
+# standalone(data_plane + yaml provider): 라우트는 conf/apisix.yaml(config_apisix.yaml 마운트)에서 읽는다.
+apisix:
+  node_listen:
+    - 9080
+  # 코어(sonic_boom/)와 플러그인(apisix/plugins/)을 한 경로로 덮는다 — COPY lua/ /opt/sonic-boom/.
+  extra_lua_path: "/opt/sonic-boom/?.lua"
+  # 헬스체크(/status/ready)용. 컨테이너 안에서만 연다.
+  status:
+    ip: 127.0.0.1
+    port: 7085
+
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+nginx_config:
+  # cache_version 폴백(os.getenv)이 읽으려면 nginx가 env를 노출해야 한다.
+  envs:
+    - CACHE_VERSION
+  http:
+    # Kong-Lua의 conf/kong-lua-extra.conf와 같은 두 존. APISIX 기본 존 이름과 겹치지 않는다.
+    custom_lua_shared_dict:
+      sonic_boom_cache: 32m
+      redis_cluster_slot_locks: 1m
+
+# 기본 플러그인 목록을 대체한다(병합 아님). 의도적으로 최소화 — 라우트가 다른 플러그인을 쓰면
+# 로드에서 바로 드러난다. strip_path 흉내에 proxy-rewrite가 필요하다.
+plugins:
+  - proxy-rewrite
+  - sonic-boom-lua

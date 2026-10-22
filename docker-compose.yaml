@@ -172,6 +172,38 @@ services:
       cluster-init:
         condition: service_healthy
 
+  # sonic-boom-lua의 APISIX 어댑터. kong-lua와 같은 코어·같은 백엔드를 쓰고 profile apisix로
+  # 격리한다. 호스트 포트 8020(8000 Go kong, 8010 kong-lua와 겹치지 않게).
+  # 이미지에 curl이 없어 헬스체크는 bash /dev/tcp로 status API(/status/ready)를 직접 친다.
+  apisix:
+    build:
+      context: .
+      dockerfile: Dockerfile.apisix
+    cpus: 2.0  # 벤치 공정 조건: kong·kong-lua와 동일 고정
+    profiles: ["apisix"]
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/7085 && printf 'GET /status/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    ports:
+      - '8020:9080'
+    restart: on-failure
+    volumes:
+      - ./config_apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    depends_on:
+      mock-upstream:
+        condition: service_started
+      redis:
+        condition: service_started
+      cluster-init:
+        condition: service_healthy
+
   # go test 러너(make test). compose 네트워크 안에서 실행해
   # 맥/리눅스/CI가 같은 방식으로 redis·cluster에 접근하게 한다.
   # profiles로 평소 up -d에는 뜨지 않는다.
