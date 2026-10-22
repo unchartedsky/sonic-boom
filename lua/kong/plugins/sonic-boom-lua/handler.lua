@@ -8,6 +8,10 @@ local core_fill_lock = require "sonic_boom.fill_lock"
 local store_memory = require "sonic_boom.store.memory"
 local store_redis = require "sonic_boom.store.redis"
 local store_rediscluster = require "sonic_boom.store.rediscluster_store"
+local product = require "sonic_boom.product"
+
+-- 제품 식별: 코어 로그 라벨은 이 어댑터의 것을 쓴다(키 접두는 기본 sbl 유지).
+product.label = "sonic-boom-lua product=kong-lua: "
 
 local plugin = {
   PRIORITY = 100,  -- Go판 pluginserver 우선선위(1)와 같은 위치감 — 인증 아래, 변환 위는 U6 재생 비교에서 재조정

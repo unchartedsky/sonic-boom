@@ -3,7 +3,7 @@
 -- PoC 수용 — 실패 시 expire 오류만 로그). 조회 실패 fail-open, 저장 실패 경고(KTD4).
 local rediscluster = require "sonic_boom.vendor.rediscluster"
 
-local PREFIX = "sonic-boom-lua product=kong-lua: "
+local product = require "sonic_boom.product"
 
 local _M = {}
 _M.sync = false  -- 저장은 log 단계 timer
@@ -35,7 +35,7 @@ function _M.new(conf)
   function store.get(key)
     local ok, val = pcall(function() return rc:get(key) end)
     if not ok then
-      ngx.log(ngx.ERR, PREFIX, "cluster get error (fail-open, miss): ", tostring(val))
+      ngx.log(ngx.ERR, product.label, "cluster get error (fail-open, miss): ", tostring(val))
       return nil
     end
     if val == nil or val == ngx.null then
@@ -47,13 +47,13 @@ function _M.new(conf)
   function store.set(key, value, ttl)
     local ok1, err1 = rc:set(key, value)
     if not ok1 then
-      ngx.log(ngx.WARN, PREFIX, "cluster set failed, not storing: ", tostring(err1))
+      ngx.log(ngx.WARN, product.label, "cluster set failed, not storing: ", tostring(err1))
       return nil, err1
     end
     if ttl and ttl > 0 then
       local ok2, err2 = rc:expire(key, ttl)
       if not ok2 then
-        ngx.log(ngx.WARN, PREFIX, "cluster expire failed (무기한 잔존 위험): ", tostring(err2))
+        ngx.log(ngx.WARN, product.label, "cluster expire failed (무기한 잔존 위험): ", tostring(err2))
       end
     end
     return true
@@ -62,7 +62,7 @@ function _M.new(conf)
   function store.delete(key)
     local ok, err = rc:del(key)
     if not ok then
-      ngx.log(ngx.WARN, PREFIX, "cluster del failed: ", tostring(err))
+      ngx.log(ngx.WARN, product.label, "cluster del failed: ", tostring(err))
     end
     return ok
   end
@@ -73,7 +73,7 @@ function _M.new(conf)
   function store.setnx(key, value, ttl)
     local ok, res, err = pcall(function() return rc:set(key, value, "EX", ttl, "NX") end)
     if not ok then
-      ngx.log(ngx.WARN, PREFIX, "cluster setnx error (fail-open): ", tostring(res))
+      ngx.log(ngx.WARN, product.label, "cluster setnx error (fail-open): ", tostring(res))
       return nil, tostring(res)
     end
     if res == "OK" then return true end

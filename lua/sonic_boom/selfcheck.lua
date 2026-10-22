@@ -53,6 +53,10 @@ function _M.run()
     ok = check(r, "key " .. g.name, derived == "sbl:0.1.0:" .. g.hash, derived) and ok
   end
 
+  -- 제품별 키 접두어: 접두어는 해시 입력에 들지 않는다 — 같은 입력이면 해시가 같고 접두어만 갈린다.
+  local sba = key.derive(GOLDEN[1].input, "0.1.0", "sba")
+  ok = check(r, "key 접두어 sba", sba == "sba:0.1.0:" .. GOLDEN[1].hash, sba) and ok
+
   local req = { path_with_query = "/api/users?page=2", headers = { Authorization = "Basic abc" } }
   local c, ttl = filter.match({
     { name = "f1", cache_ttl = 30, rules = {
