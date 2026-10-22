@@ -27,6 +27,8 @@
 3. 정규식 엔진 RE2→PCRE(`lua_regex_match_limit 10000` 완화, ReDoS 표면 축소·선형 보장은 상실)
 4. 저장 시점: Go(응답 버퍼링 후 동기) → Lua(redis/cluster는 log 단계 timer 비동기; in-memory는 body_filter 동기)
 
+> 2026-10-22 갱신: 명시 차이 1은 Go에 역포팅돼 해소됐다(U1·U2 — Set-Cookie·private/no-store/no-cache 응답 양쪽 모두 미저장). Lua에 없던 `no-cache` 검사도 추가됐다. 위 목록은 PoC 시점 기록으로 보존한다.
+
 ## 신기능 이식 백로그 (판정 통과 시, APISIX 확장과 함께 순서 제안)
 
 | 순서 | 항목 | 근거/비고 |

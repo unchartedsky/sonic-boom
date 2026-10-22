@@ -100,6 +100,11 @@ pair "S7 ctgate" Bypass GET "/go-ctgate/api/users?pr=s7" "/lua-ctgate/api/users?
 pair "S8-1 미저장 첫" Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
 pair "S8-2 미저장 재" Bypass GET "/go-setcookie/setcookie/api/users?pr=s8" "/lua-setcookie/setcookie/api/users?pr=s8"
 
+# S10-S12 Cache-Control 응답 디렉티브 — 양쪽 모두 무조건 준수한다.
+pair "S10 private"  Bypass GET "/go-setcookie/ccprivate/api/users?pr=s10"  "/lua-setcookie/ccprivate/api/users?pr=s10"
+pair "S11 no-store" Bypass GET "/go-setcookie/ccnostore/api/users?pr=s11" "/lua-setcookie/ccnostore/api/users?pr=s11"
+pair "S12 no-cache" Bypass GET "/go-setcookie/ccnocache/api/users?pr=s12" "/lua-setcookie/ccnocache/api/users?pr=s12"
+
 # S9 Age 존재·증가(갱신 조건 정합) — 신선한 키를 데운 뒤 두 Hit로 관측
 hit go "$GO" GET "/redis/api/users?pr=s9"; hit go "$GO" GET "/redis/api/users?pr=s9"; ga1="$(age_of go)"
 hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; hit lua "$LUA" GET "/lua-redis/api/users?pr=s9"; la1="$(age_of lua)"

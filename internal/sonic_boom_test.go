@@ -223,6 +223,15 @@ func TestConfig_cacheableResponseHeaders(t *testing.T) {
 		{name: "빈 헤더는 캐시 가능", headers: map[string][]string{}, want: true},
 		{name: "Set-Cookie 있으면 캐시 불가", headers: map[string][]string{"Set-Cookie": {"sid=abc"}}, want: false},
 		{name: "헤더 키 대소문자 무관", headers: map[string][]string{"set-cookie": {"sid=abc"}}, want: false},
+		{name: "private이면 캐시 불가", headers: map[string][]string{"Cache-Control": {"private"}}, want: false},
+		{name: "no-store면 캐시 불가", headers: map[string][]string{"Cache-Control": {"no-store"}}, want: false},
+		{name: "no-cache면 캐시 불가", headers: map[string][]string{"Cache-Control": {"no-cache"}}, want: false},
+		{name: "복합 디렉티브의 no-store도 캐시 불가", headers: map[string][]string{"Cache-Control": {"max-age=3600, no-store"}}, want: false},
+		{name: "Cache-Control 대소문자 무관", headers: map[string][]string{"Cache-Control": {"No-Store"}}, want: false},
+		{name: "cache-control 헤더 키 대소문자 무관", headers: map[string][]string{"cache-control": {"PRIVATE"}}, want: false},
+		{name: "다중 cache-control 값도 검사한다", headers: map[string][]string{"Cache-Control": {"max-age=60", "private"}}, want: false},
+		{name: "허용되는 디렉티브는 캐시 가능", headers: map[string][]string{"Cache-Control": {"max-age=60"}}, want: true},
+		{name: "private을 담지 않는 헤더명은 무관", headers: map[string][]string{"X-Private-Note": {"no-store"}}, want: true},
 		{name: "무관한 헤더는 캐시 가능", headers: map[string][]string{"X-Foo": {"bar"}}, want: true},
 	}
 	for _, tt := range tests {

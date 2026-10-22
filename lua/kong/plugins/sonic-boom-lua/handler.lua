@@ -213,7 +213,7 @@ local function storable_response(conf)
   if type(cc) == "string" then cc = { cc } end
   for _, v in ipairs(cc or {}) do
     local lower = v:lower()
-    if lower:find("private", 1, true) or lower:find("no-store", 1, true) then
+    if lower:find("private", 1, true) or lower:find("no-store", 1, true) or lower:find("no-cache", 1, true) then
       return false, "cache-control " .. v
     end
   end

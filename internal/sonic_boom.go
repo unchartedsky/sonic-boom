@@ -908,10 +908,12 @@ func (conf *Config) cacheableResponse(kong *pdk.PDK, headers map[string][]string
 }
 
 // cacheableResponseHeaders 은 저장 금지 응답 헤더를 판정한다. Set-Cookie가
-// 있으면 저장하지 않는다 — 개인화 응답 오염 방지(APISIX proxy-cache 기본값
-// 정합, docs/solutions/architecture-patterns/proxy-cache-principal-key-isolation.md).
-// 헤더 키는 go-pdk가 대소문자를 정규화하지 않아 무시 대소문자로 비교한다.
-// headers가 nil이면(읽기 실패) 판정 불가로 캐시 불가다.
+// 있거나 Cache-Control이 private/no-store/no-cache를 담고 있으면 저장하지
+// 않는다 — 개인화 응답 오염 방지(APISIX proxy-cache 기본값 정합,
+// docs/solutions/architecture-patterns/proxy-cache-principal-key-isolation.md).
+// Lua storable_response와 같은 부분문자열 매칭이다. 헤더 키는 go-pdk가
+// 대소문자를 정규화하지 않아 무시 대소문자로 비교한다. headers가 nil이면
+// (읽기 실패) 판정 불가로 캐시 불가다.
 func cacheableResponseHeaders(headers map[string][]string) bool {
 	if headers == nil {
 		return false
@@ -919,6 +921,15 @@ func cacheableResponseHeaders(headers map[string][]string) bool {
 	for k, vs := range headers {
 		if strings.EqualFold(k, "set-cookie") && len(vs) > 0 {
 			return false
+		}
+		if !strings.EqualFold(k, "cache-control") {
+			continue
+		}
+		for _, v := range vs {
+			lv := strings.ToLower(v)
+			if strings.Contains(lv, "private") || strings.Contains(lv, "no-store") || strings.Contains(lv, "no-cache") {
+				return false
+			}
 		}
 	}
 	return true

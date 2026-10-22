@@ -217,6 +217,13 @@ main() {
 	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 응답 미저장"
 	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 재요청"
 
+	# 3-2) Cache-Control private/no-store/no-cache 응답도 저장하지 않는다.
+	local cc_dir
+	for cc_dir in ccprivate ccnostore ccnocache; do
+		assert_status Bypass "$(status_of "$(curl_h "${BASE}${ROUTE}/${cc_dir}/api/users?page=sc1")")" "${cc_dir} 첫 요청 미저장"
+		assert_status Bypass "$(status_of "$(curl_h "${BASE}${ROUTE}/${cc_dir}/api/users?page=sc1")")" "${cc_dir} 재요청"
+	done
+
 	# 4) vary_headers: Authorization 값이 다르면 캐시 키가 분리된다
 	local auth1="dXNlcm5hbWU6cGFzc3dvcmQ="
 	local auth2="dXNlcm5hbWU6cGFzc3dvcmQy"

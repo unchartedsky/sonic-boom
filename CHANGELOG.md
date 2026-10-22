@@ -4,7 +4,7 @@
 
 ### Added
 
-- **`Set-Cookie` 응답 미저장** — 개인화 응답 오염 방지(G9). Set-Cookie 응답은 더 이상 캐시에 저장·재생되지 않고 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소).
+- **개인화 응답 미저장 게이트** — `Set-Cookie` 응답과 `Cache-Control: private/no-store/no-cache` 응답을 저장하지 않는다(G9). 해당 응답은 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소). Lua판에 없던 `no-cache` 검사도 추가됐다.
 
 ### Fixed
 
