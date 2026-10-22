@@ -46,3 +46,59 @@ jobs:
       # 멀티아치라 두 아치 모두 네이티브로 돈다.
       - name: Run e2e smoke tests (${{ matrix.platform }})
         run: make e2e GOARCH=${{ matrix.goarch }}
+
+  # Lua(sonic-boom-lua) e2e — 잡 분리로 Go e2e와 러너 병렬(같은 러너는
+  # 포트 8000/8010·서브넷 172.30.0.0/24 충돌로 불가). Go 바이너리 불필요.
+  smoke-test-lua:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run Lua e2e smoke tests (${{ matrix.platform }})
+        run: make e2e-lua
+
+  # Go↔Lua 재생 비교(가장 강한 동등성 게이트) — 양 게이트웨이가 필요해
+  # Go 바이너리 빌드 후 둘 다 기동. 논리 검증이라 단일 아치로 충분.
+  parity:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+
+      - name: Build Go plugin binary
+        run: make build GOARCH=amd64
+
+      # GOARCH는 make 커맨드라인 변수로는 별도 스텝의 compose에 전달되지 않는다.
+      # 미설정이면 compose가 ./bin/linux-arm64(존재하지 않음→빈 dir 자동 생성)를
+      # /kong/go-plugins에 마운트해 이미지의 바이너리를 가려 pluginserver가 죽는다.
+      - name: Run parity replay (Go vs Lua)
+        env:
+          GOARCH: amd64
+        run: |
+          docker compose --profile lua up -d --build --wait
+          ./scripts/parity_replay.sh
+          docker compose --profile lua down -v --remove-orphans
+
+      # compose --wait 실패 시 원인이 로그에 안 남는다(패리티 잡 1차 실패 실측) — 실패 진단 덤프
+      - name: Dump compose diagnostics
+        if: failure()
+        run: |
+          docker compose --profile lua ps -a || true
+          docker compose logs kong kong-lua --tail 100 || true
+          docker inspect sonic-boom-kong-1 sonic-boom-kong-lua-1 --format '{{.Name}} {{json .State.Health}}' || true

@@ -107,3 +107,15 @@ gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxi
 2. `config_v1.yml` — 전략용 service·route 정의
 3. `scripts/smoke_{strategy}.sh` — `smoke_lib.sh`를 라우트 prefix로 호출하는 thin wrapper
 4. `Makefile` e2e 타깃에 스크립트 추가
+
+## CI 잡 경계 — 게이트웨이별 분리(APISIX 확장 규약)
+
+CI 병렬화의 단위는 **게이트웨이 × 아치**다. 한 러너에서 게이트웨이 e2e를
+같이 돌리면 포트(8000/8010)와 서브넷(172.30.0.0/24)이 충돌하므로, 게이트웨이별로
+잡을 나눠 러너를 분리한다(`smoke-test` / `smoke-test-lua`). 재생 비교(`parity`)는
+양쪽 게이트웨이가 필요하므로 자체 잡에서 둘 다 띄운다.
+
+APISIX 추가 시 같은 규약을 따른다: `container-apisix`(이미지)·`smoke-test-apisix`
+(e2e)·`parity-lua-apisix`(코어 공유라 값싼 쌍) 잡을 같은 모양으로 붙인다.
+게이트웨이별 compose profile(`lua`, `apisix`)과 `make e2e-<gateway>` 타깃이 이 경계의
+로컬 대응물이다.

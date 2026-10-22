@@ -20,6 +20,10 @@ TMPD="$(mktemp -d)"
 trap 'rm -rf "${TMPD}"' EXIT
 
 curl_h() {
+	local a
+	for a in "$@"; do
+		[[ "${a}" == http* ]] && LAST_URL="${a}"
+	done
 	curl -s -i -m 10 "$@" | tr -d '\r'
 }
 
@@ -32,8 +36,18 @@ hdr_value() {
 	awk -F': ' -v h="$2" 'tolower($1)==tolower(h){sub(/\r$/,""); print $2}' "$1" | head -1
 }
 
+# HIT_RETRY_TIMEOUT(초): Hit 기대가 실패하면 마지막 curl URL을 기한 내 재시도한다.
+# redis/cluster의 log 단계 timer 저장은 응답 직후 비동기라 즉시 Hit가 경합하기 때문.
+# 미설정이면 기존 동작 그대로(Go 경로 무변경).
 assert_status() {
 	local want="$1" got="$2" name="$3"
+	if [[ "${want}" == "Hit" && -n "${HIT_RETRY_TIMEOUT:-}" && "${got}" != "Hit" && -n "${LAST_URL:-}" ]]; then
+		local deadline=$(( $(date +%s) + HIT_RETRY_TIMEOUT ))
+		while [[ "${got}" != "Hit" && $(date +%s) -lt ${deadline} ]]; do
+			sleep 0.3
+			got="$(status_of "$(curl_h "${LAST_URL}")")"
+		done
+	fi
 	echo "  ${name}: ${got:-<none>} (기대 ${want})"
 	if [[ "${got}" != "${want}" ]]; then
 		echo "FAIL: [${STRATEGY}] ${name} — got '${got:-<none>}', want '${want}'" >&2
@@ -176,17 +190,17 @@ main() {
 	echo "== ${STRATEGY} e2e =="
 	wait_for_kong "${BASE}"
 
-	# 0) cache_ttl 0 명시 라우트는 검증에서 거절 — Error+Bypass(AE5)
-	assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
+	# 0)·0-1) 스키마 거부 시나리오 — Lua(kong-lua)는 cache_ttl 0·cache_control을
+	# 선언형 로드 단계에서 거부해 라우트 자체가 없다. SKIP_SCHEMA_ASSERT=1이면 건너뛰고
+	# 그 거부는 'kong config parse 무효 config exit≠0'으로 별도 검증한다(기본 off: Go 경로 무변경).
+	if [[ -z "${SKIP_SCHEMA_ASSERT:-}" ]]; then
+		assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
 
-	# 0-1) cache_control 라우트는 프로세스를 죽이지 않고 Bypass(AE4).
-	# cache_control 분기는 히트 뒤에만 도달해 첫 요청은 Miss(저장 발생).
-	# 목업의 정확 매칭 location(200+application/json)을 써야 content_type
-	# 게이팅(폴스루 수정 후)과도 정합한다.
-	local cc_url="${BASE}/cache-control/enc/deflate/api/users?page=ae4"
-	assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 첫 요청(Miss)"
-	assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 이후 요청(Bypass)"
-	assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 3회째(Bypass)"
+		local cc_url="${BASE}/cache-control/enc/deflate/api/users?page=ae4"
+		assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 첫 요청(Miss)"
+		assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 이후 요청(Bypass)"
+		assert_status Bypass "$(status_of "$(curl_h "${cc_url}")")" "cache_control 3회째(Bypass)"
+	fi
 
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 	assert_status Miss "$(status_of "$(curl_h "${URL}")")" "첫 요청"

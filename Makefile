@@ -13,7 +13,7 @@ GOARCH ?= $(shell uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)
 COMPOSE ?= docker compose
 export COMPOSE # stress_scenarios.sh가 같은 compose 인자(-p 등)를 따라가게
 
-.PHONY: build test e2e stress clean
+.PHONY: build test e2e e2e-lua stress clean
 
 .ONESHELL:
 SHELL := /bin/bash
@@ -41,6 +41,18 @@ e2e: build
 	./scripts/smoke_in_memory.sh
 	./scripts/smoke_redis.sh
 	./scripts/smoke_rediscluster.sh
+
+# kong-lua(Lua 포팅) 기동 확인 — profile lua로 떠운다. 스모크는 U4부터 smoke_lua_*가 붙는다.
+# kong-lua(sonic-boom-lua) e2e — 이미지 빌드·profile lua 기동·전략 3종 스모크.
+# 재실행 멱등은 각 스모크가 스스로 캐시를 비운다(shdict 재기동/FLUSH).
+e2e-lua:
+	# 서비스 명시 — 무지정 up은 Go kong(바이너리 필요)까지 띄운다. Lua 스택만.
+	$(COMPOSE) --profile lua up -d --build --wait kong-lua mock-upstream redis cluster-init
+	curl -fsS 'http://localhost:8010/selfcheck/x' >/dev/null
+	./scripts/smoke_lua_in_memory.sh
+	./scripts/smoke_lua_redis.sh
+	./scripts/smoke_lua_rediscluster.sh
+	$(COMPOSE) --profile lua down -v --remove-orphans
 
 stress: build
 	$(compose_reset)

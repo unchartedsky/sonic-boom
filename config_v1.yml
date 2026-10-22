@@ -725,3 +725,61 @@ services:
             enabled: true
             folder: /tmp
             filename: sonic-boom-in-memory-vary.log
+
+  # ---- U6 재생 비교 대응 라우트(Lua config_lua.yml의 ctgate·setcookie와 짝) ----
+  - host: mock-upstream
+    name: example-go-ctgate
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-ctgate
+        paths:
+          - /go-ctgate
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_ttl: 15
+          strategy: redis
+          redis:
+            host: redis
+            port: 6379
+          content_type: ["text/xml"]
+
+  - host: mock-upstream
+    name: example-go-setcookie
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-setcookie
+        paths:
+          - /go-setcookie
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_ttl: 15
+          strategy: redis
+          redis:
+            host: redis
+            port: 6379
+
+  # U8 miss 벤치용 — 저장 상한 10바이트(응답 257B)라 매 요청 Miss+upstream
+  - host: mock-upstream
+    name: example-go-maxsize
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-maxsize
+        paths:
+          - /go-maxsize
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_ttl: 300
+          cacheable_body_max_size: 10
+          strategy: redis
+          redis:
+            host: redis
+            port: 6379
