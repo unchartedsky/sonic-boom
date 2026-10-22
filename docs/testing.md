@@ -131,5 +131,6 @@ APISIX도 같은 규약을 따른다: `container-apisix`(이미지)·`smoke-test
   바꾼다(`scripts/common.sh`의 `gw_env`). 키 접두는 `sbl`/`sba`로 단언한다.
 - **재생 비교:** `scripts/parity_replay.sh`는 `PARITY_PAIR=go-lua`(기본)|`lua-apisix`로 쌍을 고른다.
   lua-apisix에서는 Go 전용 시나리오(S13)를 건너뛴다.
-- **벤치:** `scripts/bench_gw.sh`는 `BENCH_PAIR=go-lua`(기본)|`lua-apisix`다. lua-apisix는 각자의
-  `/noplugins` 대비 오버헤드 비율로 판정한다(`docs/bench-apisix-vs-kong-lua.md`).
+- **벤치:** `scripts/bench_gw.sh`는 `BENCH_PAIR=go-lua`(기본)|`lua-apisix`|`all5`다. lua-apisix는 각자의
+  `/noplugins` 대비 오버헤드 비율로 판정한다(`docs/bench-apisix-vs-kong-lua.md`). all5는 우리 구현 3종과
+  Kong·APISIX 내장 `proxy-cache`를 같은 회차에 잰다(`docs/bench-five-caches.md`).

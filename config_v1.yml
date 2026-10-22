@@ -784,3 +784,22 @@ services:
           redis:
             host: redis
             port: 6379
+
+  # 5종 벤치 MISS용 — in-memory·fill-lock 끔. 내장 캐시(락 없음)와 같은 조건으로 플러그인 비용만 잰다.
+  - host: mock-upstream
+    name: example-go-maxsize-nolock
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-maxsize-nolock
+        paths:
+          - /go-maxsize-nolock
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_ttl: 300
+          cacheable_body_max_size: 10
+          strategy: in-memory
+          fill_lock:
+            enabled: false

@@ -283,6 +283,44 @@ routes:
         strategy: in-memory
         cache_control: true
 
+  # 5종 벤치 — MISS는 in-memory·fill-lock 끔(내장 캐시와 같은 무락 조건).
+  - id: lua-maxsize-nolock
+    uri: /lua-maxsize-nolock/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-maxsize-nolock(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        cache_ttl: 300
+        cacheable_body_max_size: 10
+        fill_lock:
+          enabled: false
+
+  # 5종 벤치 — APISIX 내장 proxy-cache(memory 전략, 기본 memory_cache 존). MISS는 200을 저장 대상에서 뺀다.
+  - id: apisix-pc
+    uri: /apisix-pc/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/apisix-pc(/.*)", "$1"]
+      proxy-cache:
+        cache_strategy: memory
+        cache_zone: memory_cache
+        cache_ttl: 300
+
+  - id: apisix-pc-miss
+    uri: /apisix-pc-miss/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/apisix-pc-miss(/.*)", "$1"]
+      proxy-cache:
+        cache_strategy: memory
+        cache_zone: memory_cache
+        cache_ttl: 300
+        cache_http_status: [404]
+
   # 코어 자기검증(골든 벡터·필터·엔트리 왕복·fill-lock 계약) — Nginx 런타임에서만 돈다.
   - id: selfcheck
     uri: /selfcheck/*

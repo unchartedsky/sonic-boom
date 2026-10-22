@@ -69,6 +69,50 @@ suite_overhead() { # <이름> <a_base> <a_plugin> <b_base> <b_plugin>
 	}'
 }
 
+# all5: 우리 구현 3종(Go·Kong-Lua·APISIX-Lua)과 내장 캐시 2종(Kong proxy-cache·APISIX proxy-cache)을
+# 같은 인터리브 회차에 잰다. 모두 노드 로컬 메모리 저장이고, MISS는 저장되지 않는 응답 + fill-lock 끔
+# (내장 캐시엔 락이 없다). 게이트웨이마다 기본 처리량이 달라 각자의 /noplugins 대비 비율도 찍는다.
+suite_multi() { # <이름> <라벨=URL>... — 라벨 base-<gw>가 기준선, 나머지 라벨은 <gw>:<이름>
+	local name="$1"; shift
+	echo "== ${name} (c=${CONC}, z=${DUR}, 교차 ${ROUNDS}회) =="
+	local acc i item r q5 q9
+	acc="$(mktemp -d)"  # macOS 기본 bash 3.2엔 연관 배열이 없어 라벨 순번별 파일에 누적한다
+	for _ in $(seq 1 "$ROUNDS"); do
+		i=0
+		for item in "$@"; do
+			read -r r q5 q9 <<<"$(run_bench "${item#*=}")"
+			echo "$r $(sec "$q5") $(sec "$q9")" >>"$acc/$i"; i=$((i + 1))
+		done
+	done
+	i=0
+	for item in "$@"; do
+		# shellcheck disable=SC2046
+		printf '%-22s RPS=%-8.0f p50=%.4fs p99=%.4fs RPS[%s]\n' "${item%%=*}" \
+			"$(median $(cut -d' ' -f1 "$acc/$i"))" "$(median $(cut -d' ' -f2 "$acc/$i"))" \
+			"$(median $(cut -d' ' -f3 "$acc/$i"))" "$(cut -d' ' -f1 "$acc/$i" | xargs printf '%.0f ' | sed 's/ $//')"
+		i=$((i + 1))
+	done
+	rm -rf "$acc"
+}
+
+if [[ "${BENCH_PAIR:-go-lua}" == "all5" ]]; then
+	docker compose --profile lua --profile apisix up -d --build --wait kong kong-lua apisix mock-upstream redis cluster-init >/dev/null 2>&1
+	for p in 8000/in-memory 8000/go-maxsize-nolock 8010/lua-in-memory 8010/lua-maxsize-nolock 8010/kong-pc 8010/kong-pc-miss \
+		8020/lua-in-memory 8020/lua-maxsize-nolock 8020/apisix-pc 8020/apisix-pc-miss; do
+		curl -sf -o /dev/null "http://localhost:${p}/api/users?bench=hit"  # HIT 라우트 채우기(MISS 라우트는 무해)
+	done
+	B="/api/users?bench=hit"
+	suite_multi "HIT (노드 로컬 메모리)" \
+		"base-kong-go=http://localhost:8000/noplugins$B" "kong:go=http://localhost:8000/in-memory$B" \
+		"base-kong=http://localhost:8010/noplugins$B" "kong:lua=http://localhost:8010/lua-in-memory$B" "kong:proxy-cache=http://localhost:8010/kong-pc$B" \
+		"base-apisix=http://localhost:8020/noplugins$B" "apisix:lua=http://localhost:8020/lua-in-memory$B" "apisix:proxy-cache=http://localhost:8020/apisix-pc$B"
+	suite_multi "MISS (비저장 응답, 락 끔)" \
+		"base-kong-go=http://localhost:8000/noplugins$B" "kong:go=http://localhost:8000/go-maxsize-nolock$B" \
+		"base-kong=http://localhost:8010/noplugins$B" "kong:lua=http://localhost:8010/lua-maxsize-nolock$B" "kong:proxy-cache=http://localhost:8010/kong-pc-miss$B" \
+		"base-apisix=http://localhost:8020/noplugins$B" "apisix:lua=http://localhost:8020/lua-maxsize-nolock$B" "apisix:proxy-cache=http://localhost:8020/apisix-pc-miss$B"
+	exit 0
+fi
+
 if [[ "${BENCH_PAIR:-go-lua}" == "lua-apisix" ]]; then
 	docker compose --profile lua --profile apisix up -d --build --wait kong-lua apisix mock-upstream redis cluster-init >/dev/null 2>&1
 	for _ in $(seq 1 30); do

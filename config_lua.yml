@@ -350,3 +350,56 @@ services:
       - name: sonic-boom-lua
         config:
           selfcheck: true
+
+  # 5종 벤치 — MISS는 in-memory·fill-lock 끔(내장 캐시와 같은 무락 조건).
+  - host: mock-upstream
+    name: example-lua-maxsize-nolock
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-maxsize-nolock
+        paths:
+          - /lua-maxsize-nolock
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          strategy: in-memory
+          cache_ttl: 300
+          cacheable_body_max_size: 10
+          fill_lock:
+            enabled: false
+
+  # 5종 벤치 — Kong OSS 내장 proxy-cache(memory). MISS는 200을 저장 대상에서 빼 매 요청 upstream.
+  - host: mock-upstream
+    name: example-kong-proxy-cache
+    port: 80
+    protocol: http
+    routes:
+      - name: route-kong-pc
+        paths:
+          - /kong-pc
+        strip_path: true
+    plugins:
+      - name: proxy-cache
+        config:
+          strategy: memory
+          cache_ttl: 300
+          content_type: ["application/json"]
+
+  - host: mock-upstream
+    name: example-kong-proxy-cache-miss
+    port: 80
+    protocol: http
+    routes:
+      - name: route-kong-pc-miss
+        paths:
+          - /kong-pc-miss
+        strip_path: true
+    plugins:
+      - name: proxy-cache
+        config:
+          strategy: memory
+          cache_ttl: 300
+          content_type: ["application/json"]
+          response_code: [404]

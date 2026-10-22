@@ -30,3 +30,4 @@ nginx_config:
 plugins:
   - proxy-rewrite
   - sonic-boom-lua
+  - proxy-cache  # 5종 벤치의 내장 캐시 비교 대상
