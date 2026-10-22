@@ -31,7 +31,7 @@ local product = require "sonic_boom.product"
 local _M = {}
 
 -- 저장소 팩토리. nil이면 조회가 항상 Miss다.
-function _M.new_store(conf)
+local function new_store(conf)
   if conf.strategy == "in-memory" then
     return store_memory.new(conf)
   end
@@ -48,14 +48,14 @@ end
 -- TTL 만료에 위탁된다(기본 3초).
 local function release_if_owned(conf, sb)
   if not sb or not sb.lock_token or sb.lock_token == "" then return end
-  local store = _M.new_store(conf)
+  local store = new_store(conf)
   if store then
     core_fill_lock.release(store, sb.key, sb.lock_token)
   end
 end
 
 -- 캐시 버전: Go cacheVersion()와 동일 — 설정 > CACHE_VERSION env > 플러그인 버전
-function _M.cache_version(conf)
+local function cache_version(conf)
   if conf.cache_version and conf.cache_version ~= "" then
     return conf.cache_version
   end
@@ -65,7 +65,6 @@ function _M.cache_version(conf)
   end
   return product.version
 end
-local cache_version = _M.cache_version
 
 -- vary + 필터 룰이 참조하는 헤더만 스냅샷(요청 헤더 전체 읽기 회피)
 local function header_names(conf)
@@ -173,7 +172,7 @@ function _M.access(conf, env, ctx)
   env.set_header("X-Cache-Key", key)
 
   -- ---- 저장소 조회 ----
-  local store = _M.new_store(conf)
+  local store = new_store(conf)
   local raw = store and store.get(key)
 
   if not raw then
@@ -264,7 +263,7 @@ local function storable_response(conf, env)
 end
 
 local function store_entry(conf, sb, body, env)
-  local store = _M.new_store(conf)
+  local store = new_store(conf)
   if not store then return end
   store.set(sb.key, core_entry.encode({
     status = env.status(),
@@ -298,7 +297,7 @@ function _M.header_filter(conf, sb, env, ctx)
   -- 동기 저장소(in-memory)면 여기서 빈 본문 엔트리를 굽고, 비동기 저장소(redis·cluster)는
   -- cosocket이 header_filter에서도 금지라 log 타이머로 넘긴다.
   if env.method(ctx):upper() == "HEAD" then
-    local store = _M.new_store(conf)
+    local store = new_store(conf)
     if store and store.sync then
       store_entry(conf, sb, "", env)
       release_if_owned(conf, sb) -- sync store는 shdict뿐이라 header_filter에서도 해제 가능
@@ -335,7 +334,7 @@ function _M.body_filter(conf, sb, env)
   end
 
   if eof then
-    local store = _M.new_store(conf)
+    local store = new_store(conf)
     if store and store.sync then
       store_entry(conf, sb, sb.buf and table.concat(sb.buf) or "", env)
       release_if_owned(conf, sb)
@@ -370,7 +369,7 @@ function _M.log(conf, sb)
 
   local ok, err = ngx.timer.at(0, function(premature)
     if premature then return end
-    local store = _M.new_store(conf)
+    local store = new_store(conf)
     if not store then return end
     if payload.store_it then
       store.set(payload.key, core_entry.encode({
