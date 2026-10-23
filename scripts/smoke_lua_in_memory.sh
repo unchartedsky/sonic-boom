@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Lua 포팅 in-memory 스모크(GW=kong-lua 기본 | apisix). 재실행 멱등: make e2e의 down -v
-# 관행 대신 게이트웨이 재기동으로 shdict를 비운다(첫 요청 Miss 전제).
+# Lua 포팅 in-memory 스모크(GW=kong-lua 기본 | apisix). 재실행 멱등: 게이트웨이 재기동으로
+# shdict를 비운다(첫 요청 Miss 전제) — 서문은 common.sh의 lua_smoke가 공유한다.
 source "$(dirname "$0")/common.sh"
-gw_env
-docker compose --profile "${GW_PROFILE}" restart "${GW_SVC}" >/dev/null
-sleep 6
-
-BASE_URL="${GW_BASE}" SKIP_SCHEMA_ASSERT=1 \
-  "$(dirname "$0")/smoke_lib.sh" "in_memory" "/lua-in-memory"
+lua_smoke in_memory "/lua-in-memory"
 
 # ---- U4 고정 시나리오(재사용 라이브러리 밖) ----
 B="${GW_BASE}"
@@ -23,6 +18,7 @@ want() { # <기대 xcs> <이름> <url...> — 기대·이름을 hdr에 넘기지
 
 want Bypass "content_type 목록 밖(ctgate)" "$B/lua-ctgate/api/users"
 want Bypass "Set-Cookie 응답 미저장(setcookie)" "$B/lua-setcookie/setcookie/api/users"
+want Bypass "필터 어느 룰도 매치하지 않음(nomatch)" "$B/lua-nomatch/api/users"
 want Miss "body_max_size 초과 1회차(maxsize)" "$B/lua-maxsize/api/users?u4=1"
 want Miss "body_max_size 초과 2회차(미저장 확인)" "$B/lua-maxsize/api/users?u4=1"
 
