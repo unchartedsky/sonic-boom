@@ -12,8 +12,6 @@ import (
 	"github.com/Kong/go-pdk/log"
 	"github.com/Kong/go-pdk/nginx"
 	"github.com/Kong/go-pdk/request"
-	"github.com/Kong/go-pdk/response"
-	"github.com/Kong/go-pdk/server/kong_plugin_protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -191,25 +189,18 @@ func TestConfig_cacheableResponse(t *testing.T) {
 				ContentTypes:  tt.contentTypes,
 				logger:        defaultLogger(),
 			}
-			// 헤더 읽기 실패 케이스는 get_headers가 에러를 돌려준다.
-			var headerSteps []bridgetest.MockStep
-			if tt.headers != nil {
-				h, err := bridge.WrapHeaders(tt.headers)
-				if err != nil {
-					t.Fatal(err)
-				}
-				headerSteps = []bridgetest.MockStep{{Method: "kong.response.get_headers", Ret: h}}
-			}
 			kong := &pdk.PDK{
-				Response: response.Response{PdkBridge: bridge.New(bridgetest.Mock(t, append([]bridgetest.MockStep{
-					{Method: "kong.response.get_status", Ret: &kong_plugin_protocol.Int{V: int32(tt.status)}},
-				}, headerSteps...)))},
 				Nginx: nginx.Nginx{PdkBridge: bridge.New(bridgetest.Mock(t, []bridgetest.MockStep{
 					{Method: "kong.nginx.get_var", Args: bridge.WrapString("sent_http_content_type"), Ret: bridge.WrapString(tt.contentType)},
 				}))},
 			}
-			if got := conf.cacheableResponse(kong, tt.headers); got != tt.want {
-				t.Errorf("cacheableResponse() = %v, want %v", got, tt.want)
+			// 프로덕션 Response 게이트와 같은 순서·같은 인자로 검증한다
+			// (status는 진입부에서 이미 읽은 값을 넘긴다).
+			got := conf.cacheableResponseStatusOf(tt.status) &&
+				conf.cacheableResponseContentType(kong) &&
+				cacheableResponseHeaders(tt.headers)
+			if got != tt.want {
+				t.Errorf("response gate = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -275,38 +266,26 @@ func TestConfig_cacheableResponseContentType(t *testing.T) {
 	}
 }
 
-func TestConfig_cacheableResponseStatus(t *testing.T) {
+func TestConfig_cacheableResponseStatusOf(t *testing.T) {
 	tests := []struct {
 		name          string
 		responseCodes []int
 		status        int
-		askFails      bool
 		want          bool
 	}{
 		{name: "설정된 status", responseCodes: []int{200, 301, 404}, status: 200, want: true},
 		{name: "설정된 status 두 번째", responseCodes: []int{200, 301, 404}, status: 404, want: true},
 		{name: "미설정 status", responseCodes: []int{200, 301, 404}, status: 500, want: false},
-		// 빈 mock 목록 → Ask가 EOF로 실패 → 오류 경로에서 false
-		{name: "GetStatus 실패", responseCodes: []int{200}, askFails: true, want: false},
+		// GetStatus 실패 경로는 Response 진입부(:796)가 담당한다 — 헬퍼는 I/O가 없다.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			conf := Config{
 				ResponseCodes: tt.responseCodes,
-				logger:        defaultLogger(),
 			}
-			steps := []bridgetest.MockStep{}
-			if !tt.askFails {
-				steps = append(steps, bridgetest.MockStep{
-					Method: "kong.response.get_status", Ret: &kong_plugin_protocol.Int{V: int32(tt.status)},
-				})
-			}
-			kong := &pdk.PDK{
-				Response: response.Response{PdkBridge: bridge.New(bridgetest.Mock(t, steps))},
-			}
-			if got := conf.cacheableResponseStatus(kong); got != tt.want {
-				t.Errorf("cacheableResponseStatus() = %v, want %v", got, tt.want)
+			if got := conf.cacheableResponseStatusOf(tt.status); got != tt.want {
+				t.Errorf("cacheableResponseStatusOf() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1077,7 +1056,8 @@ func TestConfig_cacheableRequest_headerReadError(t *testing.T) {
 	}
 }
 
-func TestConfig_cacheableRequest(t *testing.T) {	type fields struct {
+func TestConfig_cacheableRequest(t *testing.T) {
+	type fields struct {
 		ResponseCodes        []int
 		RequestMethods       []string
 		ContentTypes         []string

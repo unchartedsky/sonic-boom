@@ -833,7 +833,7 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	// 기록됐다(Miss/Bypass). 여기선 최종 헤더만 바꾼다(#10 이중 계산 방지).
 	// 값비싼 헤더 읽기(PDK 브리지 왕복) 전에 저렴한 status·content-type 게이트를
 	// 먼저 본다 — 탈락 응답은 헤더 비용 없이 Bypass로 돌아간다.
-	if !conf.cacheableResponseStatus(kong) || !conf.cacheableResponseContentType(kong) {
+	if !conf.cacheableResponseStatusOf(httpStatus) || !conf.cacheableResponseContentType(kong) {
 		if err := kong.Response.SetHeader("X-Cache-Status", "Bypass"); err != nil {
 			logger.Error().Err(err).Msg("Setting header `X-Cache-Status` failed")
 			return
@@ -905,22 +905,6 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	logger.Debug().Msgf("Cache set: %s", cacheKeyID)
 }
 
-func (conf *Config) cacheableResponse(kong *pdk.PDK, headers map[string][]string) bool {
-	if !conf.cacheableResponseStatus(kong) {
-		return false
-	}
-
-	if !conf.cacheableResponseContentType(kong) {
-		return false
-	}
-
-	if !cacheableResponseHeaders(headers) {
-		return false
-	}
-
-	return true
-}
-
 // cacheableResponseHeaders 은 저장 금지 응답 헤더를 판정한다. Set-Cookie가
 // 있거나 Cache-Control이 private/no-store/no-cache를 담고 있으면 저장하지
 // 않는다 — 개인화 응답 오염 방지(APISIX proxy-cache 기본값 정합,
@@ -949,13 +933,10 @@ func cacheableResponseHeaders(headers map[string][]string) bool {
 	return true
 }
 
-func (conf *Config) cacheableResponseStatus(kong *pdk.PDK) bool {
-	status, err := kong.Response.GetStatus()
-	if err != nil {
-		conf.logger.Error().Err(err).Msg("Getting response status failed")
-		return false
-	}
-
+// cacheableResponseStatusOf 은 이미 읽은 상태를 판정한다 — GetStatus는
+// Response 진입부에서 한 번만 읽는다(:796). 게이트에서 다시 읽으면 캐시 가능
+// 응답마다 PDK 왕복 1회가 낭비된다.
+func (conf *Config) cacheableResponseStatusOf(status int) bool {
 	for _, s := range conf.ResponseCodes {
 		if status == s {
 			return true
