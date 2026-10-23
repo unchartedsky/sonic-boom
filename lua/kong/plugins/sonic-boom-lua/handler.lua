@@ -31,7 +31,12 @@ local ENV = {
   set_header = function(n, v) return kong.response.set_header(n, v) end,
   status = function() return kong.response.get_status() end,
   resp_header = function(n) return kong.response.get_header(n) end,
-  resp_headers = function() return kong.response.get_headers() end,
+  resp_headers = function()
+    -- 상한 초과로 잘린 헤더는 nil로 돌려 저장 게이트에서 실패시킨다(fail-closed)
+    local h, err = kong.response.get_headers(1000)
+    if err then return nil end
+    return h
+  end,
   log = {
     err = function(...) return kong.log.err(...) end,
     notice = function(...) return kong.log.notice(...) end,

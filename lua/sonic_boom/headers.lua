@@ -13,7 +13,7 @@ function _M.clean_for_replay(headers)
   local out = {}
   for name, v in pairs(headers or {}) do
     local lower = name:lower()
-    if not HOP[lower] and not DROP[lower] and not lower:find("ratelimit%-remaining", 1, true) then
+    if not HOP[lower] and not DROP[lower] and not lower:find("ratelimit-remaining", 1, true) then
       out[name] = v
     end
   end

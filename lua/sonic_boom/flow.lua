@@ -199,7 +199,8 @@ function _M.access(conf, env, ctx)
     local entry, derr = core_entry.decode(raw)
     if entry then
       if entry.version ~= version then
-        -- Go(dc9c909): 버전 불일치는 purge 후 Miss 경로로 재수급
+        -- 명시 차이: 버전 불일치 purge 후 상태 라벨 — Go=Bypass, Lua=Miss 폴스루
+        -- (Lua 키 공간은 캐시 버전이 접두로 분리돼 purge는 방어 코드다)
         if store.delete then store.delete(key) end
       elseif (ngx.time() - entry.timestamp) > ttl then
         -- Go(dc9c909): stale은 Refresh 표시 후 업스트림 진행·재저장(경합 창 상태)
@@ -248,6 +249,10 @@ local function storable_response(conf, env)
   end
 
   local hdrs = env.resp_headers()
+  if not hdrs then
+    -- 헤더 상한(1000) 초과 잘림은 저장 실패로 취급한다 — 잘린 헤더의 엔트리 재생 방지(fail-closed)
+    return false, "response headers truncated"
+  end
   if hdrs["set-cookie"] then
     return false, "set-cookie"
   end

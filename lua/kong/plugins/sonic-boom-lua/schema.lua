@@ -39,7 +39,7 @@ return {
               elements = {
                 type = "record",
                 fields = {
-                  { name = { type = "string" } },
+                  { name = { type = "string", required = true } }, -- Go Filter.Name validate:"required" 정렬
                   { cache_ttl = { type = "integer", between = { 0, 2147483647 }, default = 0 } },
                   { rules = {
                       type = "array",
@@ -62,7 +62,10 @@ return {
           { redis = {
               type = "record",
               fields = {
-                { host = { type = "string", default = "localhost" } }, -- Go도 required 검증 없음(연결 시점 실패)
+                -- Kong 선언형 스키마는 조건부 required(if/then)가 없어 "strategy=redis일 때만 필수"를 표현할 수 없다.
+                -- redis를 선언하지 않는 서비스까지 기본값 채움 검증에 걸리므로 required로 못 만든다(실측).
+                -- host 미선언 = localhost 기본값(명시 차이 — Go는 required라 전 요청 Bypass). kong-lua-verdict.md 명시 차이 참조.
+                { host = { type = "string", default = "localhost" } },
                 { port = { type = "integer", between = { 1, 65535 }, default = 6379 } },
                 { db_number = { type = "integer", between = { 0, 2147483647 }, default = 0 } },
                 { username = { type = "string" } },

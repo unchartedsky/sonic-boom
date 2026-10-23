@@ -61,6 +61,13 @@ function _M.wait(store, key, wait_ms)
     if ngx.now() >= deadline then return nil end
     local v = store.get(key)
     if v then return v end
+    -- 값 폴링 다음에 락 소멸을 감시한다(수면 먼저·지터·마지막 값 재조회 유지):
+    -- 비저장 승자는 값을 채우지 않고 락만 푸니까, 패자가 wait_ms를 통째로 태우지 않게.
+    local lk = store.get(lock_key(key))
+    if not lk or lk == ngx.null then
+      -- 락 해제 직후 채움 경합 창을 닫는다 — 최종 값 재조회 1회, nil이면 통과.
+      return store.get(key)
+    end
   end
 end
 
@@ -76,10 +83,15 @@ function _M.or_wait(store, key, fl)
   if not ttl_ms or ttl_ms <= 0 then ttl_ms = 3000 end
   local won, token = _M.acquire(store, key, ttl_seconds(ttl_ms))
   if won then
-    local raw = store.get(key)
-    if raw and raw ~= ngx.null then
-      _M.release(store, key, token)
-      return false, raw, ""
+    local raw = nil
+    if token ~= "" then
+      -- fail-open 승자(token="")는 store가 방금 실패했음을 알기에 더블체크 get을 건너뛴다
+      -- (실패 직후 재조회는 3번째 dial 낭비 — 최대 +5s blackhole).
+      raw = store.get(key)
+      if raw and raw ~= ngx.null then
+        _M.release(store, key, token)
+        return false, raw, ""
+      end
     end
     return true, nil, token
   end

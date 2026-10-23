@@ -1,5 +1,5 @@
 -- 골든 벡터 자기검증(Nginx 런타임 전용 — bare luajit엔 ngx.re·openssl FFI가 없다).
--- 기대 해시는 구현과 별개로 파이썬 hashlib가 계산한 값이다(2026-10-21).
+-- 기대 해시는 구현과 별개로 파이썬 hashlib가 계산한 값이다(2026-10-23, sbk2 포맷).
 local key = require "sonic_boom.key"
 local filter = require "sonic_boom.filter"
 local entry = require "sonic_boom.entry"
@@ -23,7 +23,7 @@ local GOLDEN = {
       path = "/api/users", query = { page = { "2" } },
       vary = { Authorization = "Basic abc" }, ttl = 15, body = "",
     },
-    hash = "7755d9d6a845bb1447b8ab2a4c4858d76b6264335c44d50789f8f7d8a3fb2dfb",
+    hash = "a77103a405e23ded32012fb275bde4f38ff0473dcc43c14a33af78e9d943ede7",
   },
   {
     name = "V2 body+POST",
@@ -31,7 +31,7 @@ local GOLDEN = {
       method = "POST", path = "/api/login", query = {}, vary = {}, ttl = 30,
       body = '{"u":"a","p":"b"}',
     },
-    hash = "8a72300872bff19cb7cceefe917402bb9bc2db28bfe0fef8574a9cacd1773e45",
+    hash = "c70cce71c036ec77fe2f8b24615521e869350ed4eba4b629dd839916c8cf34b6",
   },
   {
     name = "V3 multi-query",
@@ -40,7 +40,7 @@ local GOLDEN = {
       path = "/x", query = { a = { "1", "2" }, b = { "3" } }, vary = {}, ttl = 300,
       body = "",
     },
-    hash = "f171325fa9fd6e8b222d130a69da3f9514d4373fce7c02be967c692ebdbdbf1e",
+    hash = "ef20363874d8b1795c002d0f484fd4ec7926b31e66a086441b1b7b7ab0fb53ef",
   },
 }
 
@@ -56,6 +56,23 @@ function _M.run()
   -- 제품별 키 접두어: 접두어는 해시 입력에 들지 않는다 — 같은 입력이면 해시가 같고 접두어만 갈린다.
   local sba = key.derive(GOLDEN[1].input, "0.1.0", "sba")
   ok = check(r, "key 접두어 sba", sba == "sba:0.1.0:" .. GOLDEN[1].hash, sba) and ok
+
+  -- 구분자 주입 회귀: sbk2 길이 접두 덕에 단일 값 "a,b"과 복수 값 a·b가 같은 키로 뭉개지지 않는다.
+  local q1 = key.derive({ method = "GET", path = "/q", query = { x = { "a,b" } }, vary = {}, ttl = 1, body = "" }, "0.1.0")
+  local q2 = key.derive({ method = "GET", path = "/q", query = { x = { "a", "b" } }, vary = {}, ttl = 1, body = "" }, "0.1.0")
+  ok = check(r, "key query 구분자 충돌 없음(sbk2)", q1 ~= q2, q1) and ok
+
+  -- 헤더 정리: ratelimit-remaining은 떼고 일반 헤더는 남긴다(plain find — % 이스케이프 잔재 회귀).
+  local headers = require "sonic_boom.headers"
+  local cleaned = headers.clean_for_replay({
+    ["Content-Type"] = "application/json",
+    ["X-RateLimit-Remaining"] = "42",
+    ["x-ratelimit-remaining-second"] = "7",
+  })
+  ok = check(r, "headers ratelimit-remaining 제거·일반 헤더 유지",
+    cleaned["Content-Type"] == "application/json"
+      and cleaned["X-RateLimit-Remaining"] == nil
+      and cleaned["x-ratelimit-remaining-second"] == nil) and ok
 
   local req = { path_with_query = "/api/users?page=2", headers = { Authorization = "Basic abc" } }
   local c, ttl = filter.match({
@@ -183,6 +200,46 @@ function _M.run()
     local e3, sb3 = flow.access(fconf, fenv, nil)
     ok = check(r, "flow ttl 초과 → Refresh", e3 == nil and sb3 ~= nil and hdr["X-Cache-Status"] == "Refresh") and ok
     mstore.delete(fkey)
+  end
+
+  -- fill-lock flow 벡터: 남의 토큰이 락을 선점하고 대기 중 타이머가 값을 채우면, 패자는
+  -- 그 값을 Hit로 서빙한다(flow.lua raw = filled 핸드오프 — e2e로는 닿지 않는 분기).
+  local tstore = require("sonic_boom.store.memory").new()
+  local tid = "sc-fl-" .. ngx.now()
+  local tenv = {
+    method = function() return "GET" end,
+    req_header = function() return nil end,
+    path = function() return "/selfcheck-flow" end,
+    path_with_query = function() return "/selfcheck-flow" end,
+    raw_body = function() return "", nil end,
+    ids = function() return tid, "", "" end,
+    set_header = function(n, v) hdr[n] = v end,
+    log = { err = function() end, notice = function() end },
+  }
+  local tnolock = {
+    request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
+    cache_version = "sc-fl", fill_lock = { enabled = false },
+  }
+  local tlock = {
+    request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
+    cache_version = "sc-fl", fill_lock = { enabled = true, ttl_ms = 3000, wait_ms = 500 },
+  }
+  local _tx, tsb0 = flow.access(tnolock, tenv, nil) -- 키 학습용 1회(Miss, 잔여물 없음)
+  local tkey = tsb0 and tsb0.key
+  ok = check(r, "flow fill-lock 패자 준비(키 파생)", tkey ~= nil) and ok
+  if tkey then
+    local lk = fill_lock.lock_key(tkey)
+    local held = tstore.setnx(lk, "sc-other-winner", 3)
+    local tok, terr = ngx.timer.at(0.05, function()
+      tstore.set(tkey, entry.encode({ status = 200, headers = {}, body = "filled-by-other",
+        timestamp = ngx.time(), version = "sc-fl", ttl = 60 }), 60)
+    end)
+    local texit = flow.access(tlock, tenv, nil)
+    ok = check(r, "flow fill-lock 패자는 대기 중 채워진 값을 Hit로 서빙",
+      held and tok ~= nil and texit ~= nil and texit.status == 200
+        and texit.body == "filled-by-other" and texit.headers["X-Cache-Status"] == "Hit") and ok
+    tstore.delete(lk)
+    tstore.delete(tkey)
   end
 
   return ok, table.concat(r, "\n")

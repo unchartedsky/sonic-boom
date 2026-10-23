@@ -5,11 +5,12 @@ local flow = require("sonic_boom.flow")
 local product = require("sonic_boom.product")
 
 local plugin_name = "sonic-boom-lua"
+local PLUGIN_VERSION = "0.1.0"
 
 -- 제품 식별: 키 접두 sba로 Kong-Lua(sbl)와 키·락 공간을 분리한다(같은 redis를 공유해도 교차 서빙 없음).
 product.label = "sonic-boom-lua product=apisix: "
 product.key_prefix = "sba"
-product.version = "0.1.0"
+product.version = PLUGIN_VERSION
 
 local pool_size = { type = "integer", minimum = 1, maximum = 2147483647, default = 10 }
 
@@ -38,6 +39,7 @@ local schema = {
       items = {
         type = "object",
         additionalProperties = false,
+        required = { "name" }, -- Go Filter.Name validate:"required" 정렬
         properties = {
           name = { type = "string" },
           cache_ttl = { type = "integer", minimum = 0, maximum = 2147483647, default = 0 },
@@ -51,7 +53,6 @@ local schema = {
                 header = { type = "string" },
                 regexp = { type = "string" },
               },
-              required = { "regexp" },
             },
           },
         },
@@ -64,8 +65,9 @@ local schema = {
     redis = {
       type = "object",
       additionalProperties = false,
+      required = { "host" }, -- Go도 custom validation에서 required(sonic_boom.go Redis.Host) — 정렬
       properties = {
-        host = { type = "string", default = "localhost" },
+        host = { type = "string" },
         port = { type = "integer", minimum = 1, maximum = 65535, default = 6379 },
         db_number = { type = "integer", minimum = 0, maximum = 2147483647, default = 0 },
         username = { type = "string" },
@@ -114,7 +116,8 @@ local schema = {
 }
 
 local _M = {
-  version = 0.1,
+  -- APISIX는 숫자 version을 요구한다 — "0.1.0"의 선행 두 자리를 수치로 파생(관측값 0.1 유지).
+  version = tonumber(PLUGIN_VERSION:match("^(%d+%.%d+)")),
   -- 권장 커스텀 대역 (0,100)의 상단: Hit은 이보다 낮은 우선순위 access 플러그인보다 먼저 단락한다.
   -- 인증 플러그인은 rewrite 단계에서 consumer를 확정하므로 consumer_name은 이미 있다.
   priority = 99,
@@ -147,7 +150,12 @@ local ENV = {
   status = function() return ngx.status end,
   resp_header = function(n) return first(ngx.header[n]) end,
   -- 기본 인자: 소문자 키 조회가 보장된다(raw 모드는 대소문자를 보존해 set-cookie 게이트가 깨진다).
-  resp_headers = function() return ngx.resp.get_headers() end,
+  -- 상한 초과로 잘린 헤더는 nil로 돌려 저장 게이트에서 실패시킨다(fail-closed).
+  resp_headers = function()
+    local h, err = ngx.resp.get_headers(1000)
+    if err then return nil end
+    return h
+  end,
   log = {
     err = function(...) core.log.error(...) end,
     notice = function(...) core.log.notice(...) end,

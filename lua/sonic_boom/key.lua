@@ -1,6 +1,7 @@
 -- 캐시 키 파생(게이트웨이 중립 — ngx.*/resty.* 만 사용).
--- 직렬화는 모든 필드를 "길이:값"으로 고정 순서 인코딩한다: 값 안에 어떤 바이트가
--- 와도 필드 경계가 흐려지지 않는다(구분자 주입 불가). "sbk1"은 포맷 자체 버전이다.
+-- 직렬화는 모든 필드와 query·vary의 키/값 하나하나를 "길이:값"으로 인코딩해 붙인다:
+-- 값 안에 어떤 바이트가 와도 필드·값 경계가 흐려지지 않는다(구분자 주입 불가 —
+-- `?x=a,b` ≡ `?x=a&x=b` 충돌 방지). "sbk2"은 포맷 자체 버전이다.
 local digest = require "resty.openssl.digest"
 local sha256_hex, serialize
 
@@ -16,9 +17,11 @@ local function query_string(query)
   table.sort(keys)
   local parts = {}
   for _, k in ipairs(keys) do
-    parts[#parts + 1] = k .. "=" .. table.concat(query[k], ",")
+    for _, v in ipairs(query[k]) do
+      parts[#parts + 1] = field(k) .. field(v)
+    end
   end
-  return table.concat(parts, ";")
+  return table.concat(parts)
 end
 
 -- vary: {k=v} 정렬, 값 있는 헤더만(빈 값 제외는 어댑터 책임)
@@ -29,13 +32,13 @@ local function vary_string(vary)
   table.sort(keys)
   local parts = {}
   for _, k in ipairs(keys) do
-    parts[#parts + 1] = k .. "=" .. vary[k]
+    parts[#parts + 1] = field(k) .. field(vary[k])
   end
-  return table.concat(parts, ";")
+  return table.concat(parts)
 end
 
 function serialize(i)
-  return "sbk1"
+  return "sbk2"
     .. field(i.consumer or "")
     .. field(i.service or "")
     .. field(i.route or "")
