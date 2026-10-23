@@ -53,7 +53,7 @@ func Test_Redis_FillLock_LoserWaitsAndServesFilledValue(t *testing.T) {
 		_ = marshal.Set(context.Background(), key, cv)
 	}()
 
-	got := waitForFill(marshal, key, 2*time.Second)
+	got := waitForFill(cm, marshal, key, 2*time.Second)
 	require.NotNil(t, got, "기한 안에 채워진 값을 돌려받아야 한다")
 	require.Equal(t, 200, got.Status)
 	require.Equal(t, []byte("filled"), got.Body)
@@ -69,7 +69,7 @@ func Test_Redis_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 	require.True(t, won)
 
 	start := time.Now()
-	got := waitForFill(marshal, key, 150*time.Millisecond)
+	got := waitForFill(cm, marshal, key, 150*time.Millisecond)
 	elapsed := time.Since(start)
 
 	require.Nil(t, got, "아무도 채우지 않으면 nil(통과)을 돌려준다")
@@ -78,8 +78,28 @@ func Test_Redis_FillLock_WaitCapDegradesToPassThrough(t *testing.T) {
 
 	// WaitMs=0은 기다림 없이 즉시 통과한다.
 	t0 := time.Now()
-	require.Nil(t, waitForFill(marshal, "fill-lock-zero-wait", 0))
+	require.Nil(t, waitForFill(cm, marshal, "fill-lock-zero-wait", 0))
 	require.Less(t, time.Since(t0), 20*time.Millisecond)
+}
+
+// 락이 사라지면(승자 만료·크래시) 값은 오지 않는다 — 기한 전이라도 포기한다
+// (#4, Lua _M.wait 동일 규칙). 값 없이 락만 풀린 상태에서 기한을 길게 주고
+// 조기 반환을 단언한다.
+func Test_Redis_FillLock_WaitAbortsWhenLockVanishes(t *testing.T) {
+	cfg := newRedisConfigForTest()
+	cm, marshal, err := cfg.newCacheManager(10)
+	require.NoError(t, err)
+
+	key := "fill-lock-vanish-key"
+	won, token := acquireFillLock(cm, key, 3*time.Second)
+	require.True(t, won)
+	releaseFillLockIfOwned(cm, key, token) // 승자가 값을 채우지 않고 사라진 상태
+
+	start := time.Now()
+	got := waitForFill(cm, marshal, key, 2*time.Second)
+
+	require.Nil(t, got, "락이 없으면 값이 채워지지 않는다 — 조기 포기")
+	require.Less(t, time.Since(start), 1*time.Second, "기한 2s 전에 포기한다")
 }
 
 func Test_Redis_FillLock_ReleasedAfterDelete(t *testing.T) {

@@ -56,7 +56,7 @@ func Test_Redis_ClientSideCache_FreshAfterExternalWrite(t *testing.T) {
 		MaxEntries:     128,
 		MaxStalenessMs: 5000,
 	}
-	_, cscMarshal, err := cscCfg.newCacheManager(60)
+	cscCm, cscMarshal, err := cscCfg.newCacheManager(60)
 	require.NoError(t, err)
 
 	key := "csc-fresh-key"
@@ -72,7 +72,7 @@ func Test_Redis_ClientSideCache_FreshAfterExternalWrite(t *testing.T) {
 	// 1) CSC 경로로 값 저장·조회(왕복 투명성)
 	cv1 := &CacheValue{Status: 200, Headers: map[string][]string{}, Body: []byte("v1"), TTL: 60, Version: "1.0"}
 	require.NoError(t, cscMarshal.Set(ctx, key, cv1))
-	got := waitForFill(cscMarshal, key, 2*time.Second)
+	got := waitForFill(cscCm, cscMarshal, key, 2*time.Second)
 	require.NotNil(t, got, "CSC 클라이언트로 marshal 왕복이 동작한다")
 	require.Equal(t, []byte("v1"), got.Body)
 
@@ -88,7 +88,7 @@ func Test_Redis_ClientSideCache_FreshAfterExternalWrite(t *testing.T) {
 	// 3) CSC 클라이언트의 재조회가 갱신을 반영한다(invalidation push, 기한 있음)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		v := waitForFill(cscMarshal, key, 200*time.Millisecond)
+		v := waitForFill(cscCm, cscMarshal, key, 200*time.Millisecond)
 		if v != nil && string(v.Body) == "v2" {
 			break // 갱신 반영 확인
 		}
