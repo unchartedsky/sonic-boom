@@ -1,3 +1,16 @@
+# 3 게이트웨이(kong·kong-lua·apisix) 공통 — depends_on·cpus·restart 흡수.
+# healthcheck는 검사 명령·포트가 서비스별로 달라 앵커 밖에 둔다.
+x-gateway-common: &gateway-common
+  cpus: 2.0 # 벤치 공정 조건(U8): 3게이트웨이 동일 고정
+  restart: on-failure
+  depends_on:
+    mock-upstream:
+      condition: service_started
+    redis:
+      condition: service_started
+    cluster-init:
+      condition: service_healthy
+
 services:
   mock-upstream:
     image: nginx:1.30.6-alpine
@@ -84,7 +97,7 @@ services:
     # image: ghcr.io/unchartedsky/sonic-boom:sha-01f9cc1
     # image: kong:3.9.0-ubuntu
     build: .
-    cpus: 2.0  # 벤치 공정 조건(U8): kong-lua와 동일 고정
+    <<: *gateway-common
     # 베이스 이미지 헬스체크에는 start_period가 없어 동시 콜드 부팅 시
     # 20초 만에 unhealthy 판정된다(CI parity 잡 실측) — 부팅 유예를 준다.
     healthcheck:
@@ -124,19 +137,11 @@ services:
       - OTEL_LOG_LEVEL=info
     ports:
       - '8000:8000'
-    restart: on-failure
     volumes:
       - ./config_v1.yml:/kong/config.yml
       # build.sh가 bin/linux-${GOARCH}/sonic-boom으로 크로스컴파일한다.
       # GOARCH는 호스트 아키텍처 기본(맥 arm64), amd64 CI에서는 환경변수로 덮어쓴다.
       - ./bin/linux-${GOARCH:-arm64}:/kong/go-plugins
-    depends_on:
-      mock-upstream:
-        condition: service_started
-      redis:
-        condition: service_started
-      cluster-init:
-        condition: service_healthy
 
   # sonic-boom의 Lua 포팅(kong-lua-plugin 계획). Go판 kong(8000)과 백엔드를 공유하고
   # profile lua로 격리 — make e2e의 up/down이 Lua 개발 상태에 영향받지 않는다.
@@ -146,7 +151,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.kong-lua
-    cpus: 2.0  # 벤치 공정 조건(U8): Go kong과 동일 고정
+    <<: *gateway-common
     profiles: ["lua"]
     healthcheck:
       test: ["CMD-SHELL", "kong health"]
@@ -159,18 +164,13 @@ services:
       - KONG_DECLARATIVE_CONFIG=/kong/config.yml
       - KONG_PROXY_LISTEN=0.0.0.0:8000
       - KONG_LOG_LEVEL=debug
+      # nginx main 컨텍스트에 CACHE_VERSION env를 노출 — 설정 값 폴백이 도달 불가한 문제(#23)
+      - KONG_NGINX_MAIN_ENV=CACHE_VERSION
+      - CACHE_VERSION=${CACHE_VERSION:-}
     ports:
       - '8010:8000'
-    restart: on-failure
     volumes:
       - ./config_lua.yml:/kong/config.yml
-    depends_on:
-      mock-upstream:
-        condition: service_started
-      redis:
-        condition: service_started
-      cluster-init:
-        condition: service_healthy
 
   # sonic-boom-lua의 APISIX 어댑터. kong-lua와 같은 코어·같은 백엔드를 쓰고 profile apisix로
   # 격리한다. 호스트 포트 8020(8000 Go kong, 8010 kong-lua와 겹치지 않게).
@@ -179,7 +179,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.apisix
-    cpus: 2.0  # 벤치 공정 조건: kong·kong-lua와 동일 고정
+    <<: *gateway-common
     profiles: ["apisix"]
     healthcheck:
       test:
@@ -193,16 +193,8 @@ services:
       start_period: 60s
     ports:
       - '8020:9080'
-    restart: on-failure
     volumes:
       - ./config_apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
-    depends_on:
-      mock-upstream:
-        condition: service_started
-      redis:
-        condition: service_started
-      cluster-init:
-        condition: service_healthy
 
   # go test 러너(make test). compose 네트워크 안에서 실행해
   # 맥/리눅스/CI가 같은 방식으로 redis·cluster에 접근하게 한다.

@@ -198,7 +198,8 @@ main() {
 
 		# cache_control=true 옵트인 가드: 무관 요청은 캐시되고, Authorization·
 		# no-store·no-cache 요청은 매번 Bypass다(조회 이전 차단).
-		local cc_url="${BASE}/cache-control/api/users?page=ae4"
+		# 전략 태그 — /cache-control 키가 스모크 3종에서 공유되면 스모크 간 TTL 타이밍 의존이 생긴다
+		local cc_url="${BASE}/cache-control/api/users?page=${STRATEGY}-ae4"
 		assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 첫 요청(Miss)"
 		assert_status Hit "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 재요청(Hit)"
 		local cc_auth="Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ="

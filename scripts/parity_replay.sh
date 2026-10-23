@@ -61,15 +61,6 @@ pair() { # <이름> <기대 xcs> <method> <go_path> <lua_path> [opts...] — 양
 	[[ "$(cut -d'|' -f1,3 <<<"$gr")" == "$(cut -d'|' -f1,3 <<<"$lr")" ]] || { echo "FAIL: ${name} status/body 불일치" >&2; exit 1; }
 }
 
-pairdiv() { # <이름> <go기대> <lua기대> <method> <go_path> <lua_path> [opts...]
-	local name="$1" gw="$2" lw="$3" method="$4" gpath="$5" lpath="$6"; shift 6
-	hit go "$A" "$method" "$(a_path "$gpath" "$lpath")" "$@"
-	hit lua "$B" "$method" "$lpath" "$@"
-	local gr lr; gr="$(cat "${TMPD}/go.res")"; lr="$(cat "${TMPD}/lua.res")"
-	echo "  ${name}: ${A_TAG}=[${gr}] ${B_TAG}=[${lr}] (기대 ${A_TAG}=${gw} ${B_TAG}=${lw})"
-	[[ "$(cut -d'|' -f2 <<<"$gr")" == "$gw" && "$(cut -d'|' -f2 <<<"$lr")" == "$lw" ]] || { echo "FAIL: ${name} 분기 기대 위반" >&2; exit 1; }
-}
-
 age_of() { awk -F': ' 'tolower($1)=="age"{sub(/\r$/,"");print $2}' "${TMPD}/$1.hdr" | head -1; }
 
 echo "== 재생 비교 ${PARITY_PAIR} (redis 전략 범위, 기본 설정·fill-lock 켬) =="

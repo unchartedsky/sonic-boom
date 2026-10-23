@@ -67,6 +67,12 @@ jobs:
       - name: Run Lua e2e smoke tests (${{ matrix.platform }})
         run: make e2e-lua
 
+      - name: Dump compose diagnostics
+        if: failure()
+        run: |
+          docker compose --profile lua ps -a || true
+          docker compose logs kong-lua --tail 100 || true
+
   # APISIX 어댑터 e2e — 게이트웨이 × 아치 잡 경계 규약(docs/testing.md "CI 잡 경계").
   # kong-lua와 같은 스모크 3종을 GW=apisix로 돈다. 포트 8020·profile apisix로 러너 분리.
   smoke-test-apisix:

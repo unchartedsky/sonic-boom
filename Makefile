@@ -42,31 +42,27 @@ e2e: build
 	./scripts/smoke_redis.sh
 	./scripts/smoke_rediscluster.sh
 
-# kong-lua(Lua 포팅) 기동 확인 — profile lua로 떠운다. 스모크는 U4부터 smoke_lua_*가 붙는다.
-# kong-lua(sonic-boom-lua) e2e — 이미지 빌드·profile lua 기동·전략 3종 스모크.
+# kong-lua(sonic-boom-lua)·APISIX 어댑터 e2e — 이미지 빌드·프로필 기동·전략 3종 스모크.
 # 재실행 멱등은 각 스모크가 스스로 캐시를 비운다(shdict 재기동/FLUSH).
-e2e-lua:
+# 공유 레시피 — 타깃별로 GW·PROFILE·SVC·PORT 4토큰만 다르다(#25).
+define e2e_gateway
 	# .ONESHELL은 레시피를 셸 하나로 돌려 마지막 줄 종료 코드만 남긴다 — set -e 없으면 스모크 실패가 가려진다.
 	# 실패 시 down을 건너뛰어 CI 진단 단계가 컨테이너 로그를 읽게 둔다(trap으로 내리지 않는다).
 	set -euo pipefail
 	# 서비스 명시 — 무지정 up은 Go kong(바이너리 필요)까지 띄운다. Lua 스택만.
-	$(COMPOSE) --profile lua up -d --build --wait kong-lua mock-upstream redis cluster-init
-	curl -fsS 'http://localhost:8010/selfcheck/x' >/dev/null
-	./scripts/smoke_lua_in_memory.sh
-	./scripts/smoke_lua_redis.sh
-	./scripts/smoke_lua_rediscluster.sh
-	$(COMPOSE) --profile lua down -v --remove-orphans
+	$(COMPOSE) --profile $(2) up -d --build --wait $(3) mock-upstream redis cluster-init
+	curl -fsS 'http://localhost:$(4)/selfcheck/x' >/dev/null
+	GW=$(1) ./scripts/smoke_lua_in_memory.sh
+	GW=$(1) ./scripts/smoke_lua_redis.sh
+	GW=$(1) ./scripts/smoke_lua_rediscluster.sh
+	$(COMPOSE) --profile $(2) down -v --remove-orphans
+endef
 
-# APISIX 어댑터 e2e — kong-lua와 같은 스모크 3종을 GW=apisix로 돌린다(같은 코어·같은 /lua-* 경로).
-# Kong-Lua와 포트(8010/8020)·프로필이 달라 같은 러너에서 독립 실행된다.
+e2e-lua:
+	$(call e2e_gateway,kong-lua,lua,kong-lua,8010)
+
 e2e-apisix:
-	set -euo pipefail  # e2e-lua와 같은 이유
-	$(COMPOSE) --profile apisix up -d --build --wait apisix mock-upstream redis cluster-init
-	curl -fsS 'http://localhost:8020/selfcheck/x' >/dev/null
-	GW=apisix ./scripts/smoke_lua_in_memory.sh
-	GW=apisix ./scripts/smoke_lua_redis.sh
-	GW=apisix ./scripts/smoke_lua_rediscluster.sh
-	$(COMPOSE) --profile apisix down -v --remove-orphans
+	$(call e2e_gateway,apisix,apisix,apisix,8020)
 
 stress: build
 	$(compose_reset)
