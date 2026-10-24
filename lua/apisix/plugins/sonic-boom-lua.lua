@@ -110,9 +110,10 @@ local schema = {
       default = { enabled = true, ttl_ms = 3000, wait_ms = 200 },
     },
   },
-  -- Kong-Lua보다 엄격하다(명시 차이): 클러스터 주소 누락을 요청 시점이 아니라 설정 로드에서 거부한다.
-  ["if"] = { properties = { strategy = { const = "redis-cluster" } }, required = { "strategy" } },
-  ["then"] = { required = { "redis_cluster" }, properties = { redis_cluster = { required = { "addrs" } } } },
+  -- 조건부 필수(strategy별 redis/redis_cluster 요구)는 YAML 배치에서 강제할 수 없다 —
+  -- 실측: if/then·oneOf 모두 무시되고, YAML 라우트 검증은 선언형 스키마만 돌고
+  -- check_schema 훅은 Admin API(etcd) 모드에서만 호출된다. YAML에서는 런타임
+  -- fail-open(store 생성 실패 → Miss)이 계약이고, 로드 강제는 etcd 모드의 훅이 담당한다.
 }
 
 local _M = {
@@ -127,7 +128,22 @@ local _M = {
 }
 
 function _M.check_schema(conf)
-  return core.schema.check(schema, conf)
+  local ok, err = core.schema.check(schema, conf)
+  if not ok then
+    return false, err
+  end
+  -- 조건부 필수 — Admin API(etcd) 모드의 설정 검증에서 강제한다. YAML 배치에서는
+  -- 이 훅이 호출되지 않으므로(실측) 런타임 fail-open이 계약이다(아래 주석 참조).
+  if conf.strategy == "redis" and not (conf.redis and conf.redis.host) then
+    return false, "strategy=redis requires redis.host"
+  end
+  if conf.strategy == "redis-cluster" then
+    local addrs = conf.redis_cluster and conf.redis_cluster.addrs
+    if type(addrs) ~= "table" or #addrs == 0 then
+      return false, "strategy=redis-cluster requires redis_cluster.addrs"
+    end
+  end
+  return true
 end
 
 local function first(v)

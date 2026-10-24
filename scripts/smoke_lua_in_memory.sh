@@ -40,5 +40,12 @@ if [[ "${GW_SVC}" == "apisix" ]]; then
 	[[ "${logs}" == *"found cache_control, key: /routes/lua-schema-reject"* ]] \
 		|| { echo "FAIL: 스키마 거부 로그 없음" >&2; exit 1; }
 	echo "  스키마 거부 로그: OK"
+	# strategy=redis인데 redis 블록이 없는 라우트: YAML 배치는 로드 거부가 불가능하므로(실측 —
+	# if/then·oneOf 무시, check_schema 훅은 Admin API 모드 전용) 런타임 fail-open이 계약이다.
+	# 접속 실패 → Miss → 업스트림 통과로 서비스가 살아있는지를 단언한다.
+	mh_xcs="$(curl -s -m 10 -o /dev/null -w '%{header_json}' "$B/lua-schema-reject-redis/api/users" 2>/dev/null | grep -o '"x-cache-status":\["[^"]*"' | cut -d'"' -f4)"
+	echo "  redis 미선언 라우트 런타임: X-Cache-Status=${mh_xcs} (기대 Bypass — fail-open 후 미저장)"
+	[[ "${mh_xcs}" == "Bypass" ]] || { echo "FAIL: 저장소 없는 라우트가 fail-open하지 않는다" >&2; exit 1; }
+	echo "  저장소 미선언 fail-open: OK"
 fi
 echo "OK: [${GW_SVC}-in-memory] U4 고정 시나리오 통과"

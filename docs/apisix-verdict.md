@@ -27,8 +27,11 @@
 
 1. **정규식 match limit**이 100000 대 10000이다. APISIX가 nginx 템플릿에 하드코딩해 설정으로 바꿀 수 없다.
    snippet으로 중복 선언하면 nginx가 기동하지 않는다. 필터 정규식의 ReDoS 예산이 10배 넓다.
-2. **클러스터 주소 필수 검증이 더 엄격하다.** `strategy=redis-cluster`인데 `redis_cluster.addrs`가 없으면 스키마
-   단계에서 거부한다. Kong-Lua는 요청 시점에야 실패한다.
+2. **클러스터 주소 필수 검증 — 모드별로 다르다.** Admin API(etcd) 배치는 플러그인 `check_schema` 훅에서
+   `strategy=redis`에 `redis.host`, `strategy=redis-cluster`에 `redis_cluster.addrs` 누락을 거부한다.
+   Kong-Lua는 요청 시점에야 실패한다. **YAML standalone 배치는 예외다** — 실측으로 if/then·oneOf가
+   모두 무시되고 check_schema 훅도 호출되지 않아 로드 거부가 불가능하며, 런타임 fail-open(Bypass)이
+   계약이다(`lua-schema-reject-redis` 라우트와 그 단언이 이를 고정한다).
 3. **스키마 거부 단위가 다르다.** APISIX standalone은 잘못된 라우트 하나만 건너뛰고
    `failed to check item data` 오류 로그를 남긴다. Kong-Lua는 선언형 로드 전체가 거부된다. 미구현 필드
    (`cache_control` 등)를 거부하는 결과는 같다.

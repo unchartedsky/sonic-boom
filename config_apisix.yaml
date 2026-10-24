@@ -257,6 +257,13 @@ routes:
           addrs: ["redis-cluster:7000"]
 
   # Go example(/ex) 필터 미러 — 재생 비교 S5용(필터 룰·TTL 동일)
+  - id: lua-schema-reject-redis
+    uri: /lua-schema-reject-redis/*
+    upstream_id: mock
+    plugins:
+      sonic-boom-lua:
+        strategy: redis
+
   - id: lua-filter
     uri: /lua-filter/*
     upstream_id: mock
