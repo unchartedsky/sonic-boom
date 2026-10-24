@@ -226,6 +226,11 @@ main() {
 	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 응답 미저장"
 	assert_status Bypass "$(status_of "$(curl_h "${sc_url}")")" "Set-Cookie 재요청"
 
+	# 3-3) 헤더 110개+후행 Set-Cookie — 기본 상한(100)으로 읽으면 잘린 채 저장된다(#3 회귀 게이트).
+	local mh_url="${BASE}${ROUTE}/manyhdr/api/users?page=mh1"
+	assert_status Bypass "$(status_of "$(curl_h "${mh_url}")")" "다중 헤더 잘림 방어(첫 요청)"
+	assert_status Bypass "$(status_of "$(curl_h "${mh_url}")")" "다중 헤더 재요청(미저장 확인)"
+
 	# 3-2) Cache-Control private/no-store/no-cache 응답도 저장하지 않는다.
 	local cc_dir
 	for cc_dir in ccprivate ccnostore ccnocache; do

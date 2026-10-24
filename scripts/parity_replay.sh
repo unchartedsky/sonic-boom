@@ -130,4 +130,24 @@ hit lua "$B" GET "/lua-redis/api/users?pr=s9"; la2="$(age_of lua)"
 echo "  S9 Age: ${A_TAG} ${ga1}→${ga2}, ${B_TAG} ${la1}→${la2}"
 [[ -n "${ga2:-}" && "${ga2}" -gt "${ga1}" ]] || { echo "FAIL: ${A_TAG} Age 증가 없음" >&2; exit 1; }
 [[ -n "${la2:-}" && "${la2}" -gt "${la1}" ]] || { echo "FAIL: ${B_TAG} Age 증가 없음" >&2; exit 1; }
+# S14 cache_version 롤오버 — 두 Lua 게이트웨이가 같은 새 세대 네임스페이스로 갈아타는지.
+# Go는 롤오버 라벨이 Bypass(명시 차이 5)라 go-lua 쌍에서는 비교 불가 — lua-apisix 전용.
+if [[ "${PARITY_PAIR}" == lua-apisix ]]; then
+	RB="rb-$(date +%s)"
+	CACHE_VERSION="$RB" docker compose --profile lua up -d --force-recreate kong-lua >/dev/null
+	CACHE_VERSION="$RB" docker compose --profile apisix up -d --force-recreate apisix >/dev/null
+	sleep 6; wait_for_kong "$A"; wait_for_kong "$B"
+	for _ in $(seq 1 20); do
+		l1="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$A/lua-redis/api/users?warm" || true)"
+		l2="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$B/lua-redis/api/users?warm" || true)"
+		[[ "$l1" == 200 && "$l2" == 200 ]] && break
+		sleep 1
+	done
+	pair "S14 rollover 첫 요청" Miss GET "/lua-redis/api/users?pr=s14a" "/lua-redis/api/users?pr=s14a"
+	# 원복: 기본 세대로 재생성해 뒤따르는 실행이 오염되지 않게 하고 캐시도 비운다.
+	docker compose --profile lua up -d --force-recreate kong-lua >/dev/null
+	docker compose --profile apisix up -d --force-recreate apisix >/dev/null
+	sleep 6; wait_for_kong "$A"; wait_for_kong "$B"
+	docker compose exec -T redis redis-cli FLUSHALL >/dev/null
+fi
 echo "OK: [parity ${PARITY_PAIR}] redis 전략 범위 — 시퀀스·status·body 일치"
