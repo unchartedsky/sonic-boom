@@ -1,13 +1,14 @@
 package internal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/Kong/go-pdk"
-	"github.com/cespare/xxhash/v2"
 )
 
 type CacheKey struct {
@@ -148,11 +149,12 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 	return generateCacheKeyID(logger, cacheKey)
 }
 
-// generateCacheKeyID 는 CacheKey를 결정론적 바이트열로 직렬화해 xxhash로
-// 압축한다. 직렬화 규칙(길이 접두 필드 + 정렬된 맵 항목)이 결정론성의 전부다 —
-// 맵 삽입 순서와 무관하게 같은 논리적 키는 같은 바이트열이 된다. 이전
-// hashstructure 대비 요청 핫패스의 reflect 비용이 사라지고, 알고리즘 전환은
-// CacheVersion 마커(sonic_boom.go cacheVersion)로 구획된다.
+// generateCacheKeyID 는 CacheKey를 결정론적 바이트열로 직렬화해 sha256 hex로
+// 압축한다(이전 xxhash64는 비암호 해시라 2^32 지점에서 충돌했다). 직렬화 규칙
+// (길이 접두 필드 + 정렬된 맵 항목)이 결정론성의 전부다 — 맵 삽입 순서와
+// 무관하게 같은 논리적 키는 같은 바이트열이 된다. 이전 hashstructure 대비 요청
+// 핫패스의 reflect 비용이 사라지고, 알고리즘 전환은 CacheVersion
+// 마커(sonic_boom.go cacheVersion)로 구획된다.
 func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 	var b strings.Builder
 	writeField := func(parts ...string) {
@@ -167,6 +169,8 @@ func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 	writeField(cacheKey.Consumer, cacheKey.Service, cacheKey.Route, cacheKey.Method, cacheKey.URL)
 
 	// 맵 항목은 키 정렬 후 기록 — 삽입 순서가 결정론성을 깨지 않게.
+	// 값 하나하나 길이 접두로 기록한다 — NUL join은 `x=a%00b`(단일 값)와
+	// `x=a&x=b`(다중 값)가 같은 바이트열로 충돌했다(PE3).
 	writeSortedMap := func(m map[string][]string) {
 		keys := make([]string, 0, len(m))
 		for k := range m {
@@ -176,7 +180,7 @@ func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 		for _, k := range keys {
 			vs := append([]string(nil), m[k]...)
 			sort.Strings(vs)
-			writeField("q", k, strings.Join(vs, "\x00"))
+			writeField(append([]string{"q", k}, vs...)...)
 		}
 	}
 	writeSortedMap(cacheKey.QueryArgs)
@@ -195,8 +199,10 @@ func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 	b.WriteString("|ttl:")
 	b.WriteString(strconv.Itoa(cacheKey.CacheTTL))
 
-	hash := xxhash.Sum64([]byte(b.String()))
-	cacheKeyID := strconv.FormatUint(hash, 10)
+	// 해시 형식 전환(십진수 xxhash → 64-hex sha256)에 버전 마커가 없어도 구 키는
+	// 새 키와 절대 겹치지 않는다 — 재조회되지 않은 채 TTL 만료까지 잔존 후 소멸.
+	sum := sha256.Sum256([]byte(b.String()))
+	cacheKeyID := hex.EncodeToString(sum[:])
 	logger.Debug().Msgf("cache key id %s is generated from: %v", cacheKeyID, cacheKey)
 	return cacheKeyID, nil
 }

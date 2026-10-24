@@ -8,12 +8,14 @@
 
 ### Changed
 
+- **캐시 키 직렬화 v2** — 해시를 xxhash64(비암호, 2^32 충돌)에서 sha256(64-hex)으로 바꾸고, 쿼리 다중 값을 NUL join 대신 값 단위 길이 접두로 직렬화해 `?x=a%00b`(단일 값)와 `?x=a&x=b`(다중 값)의 키 충돌을 제거한다. 구 형식 키는 새 키와 절대 겹치지 않아 재조회되지 않으므로, TTL 만료까지 잔존 후 자연 소멸한다(버전 마커 불필요).
 - **`cache_control: true`가 실제로 동작** — 기존에는 첫 요청만 저장하고 이후 Bypass했으나, 이제 Kong 원본 의도의 옵트인 요청 가드로 동작한다. 요청 `Cache-Control: no-store/no-cache`와 `Authorization` 헤더는 캐시에서 제외되고, 나머지 요청은 정상 캐시된다(G8 완화). **운영 주의**: 이 플래그를 켠 기존 배포는 응답이 실제로 캐시·재생되기 시작한다.
 
 ### Fixed
 
 검증된 결함 9종 수정(전체 근거: `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md`, 계획: `docs/plans/2026-10-18-2126-fix-verified-cache-bugs-plan.md`).
 
+- **OTel 활성 시 Response 저장 경로가 항상 조기 중단되던 결함 수정** — `span_context`를 `kong.ctx.shared`로 그대로 저장하면 JSON 마샬 왕복 뒤 타입 단언이 항상 실패해, `OTEL_SDK_DISABLED != "true"`(실배포 기본값)에서 아무것도 저장되지 않고 fill-lock 승자의 락이 TTL까지 방치됐다. 직렬화 가능한 DTO로 전달하도록 바꾸고, 복원 실패 시 저장을 중단하지 않고 부모 없이 계속한다.
 - **필터 `cache_ttl`이 실제 만료에 적용** — 저장·stale 판정이 전역 값을 쓰던 것을 필터별 TTL로. 미설정(0) 필터 TTL은 전역 `cache_ttl`을 상속(명시적 0도 상속을 의미).
 - **만료·세대 불일치 캐시의 낡은 값 서빙 차단** — 버전 불일치 purge·stale 판정 뒤 upstream으로 통과(원본 Kong Lua 시맨틱 복원)하고, 재저장 경로를 개통.
 - **`cache_ttl` 기본값 0→300, 명시적 0 거절** — TTL 0은 Redis에 만료 없는 키를 남기고 절대 히트하지 못했다.

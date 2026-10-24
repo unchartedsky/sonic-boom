@@ -8,7 +8,7 @@ import (
 
 // 캐시 키 결정론성 단언(계획 U1): 같은 CacheKey는 항상 같은 키, 맵 삽입
 // 순서와 무관, 필드 하나만 달라도 다른 키. hashstructure 제거 후
-// 직렬화+xxhash 구현이 이 계약을 지키는지 검증한다.
+// 직렬화+sha256 구현이 이 계약을 지키는지 검증한다.
 
 func Test_GenerateCacheKeyID_Deterministic(t *testing.T) {
 	logger := defaultLogger()
@@ -69,6 +69,26 @@ func Test_GenerateCacheKeyID_NilMapEqualsEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, a, b, "nil 맵과 빈 맵은 같은 키")
+}
+
+func Test_GenerateCacheKeyID_NulSingleVsMultiValue(t *testing.T) {
+	logger := defaultLogger()
+
+	// PE3: 단일 값 "a\x00b"와 다중 값 ["a","b"]는 이전 NUL join 직렬화에서 같은
+	// 키로 충돌했다. 값 단위 길이 접두로 구분돼야 한다.
+	single, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/x", CacheTTL: 15,
+		QueryArgs: map[string][]string{"x": {"a\x00b"}},
+	})
+	require.NoError(t, err)
+
+	multi, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/x", CacheTTL: 15,
+		QueryArgs: map[string][]string{"x": {"a", "b"}},
+	})
+	require.NoError(t, err)
+
+	require.NotEqual(t, single, multi, "NUL 포함 단일 값과 다중 값은 다른 키여야 한다")
 }
 
 func Test_GenerateCacheKeyID_FieldChangeChangesKey(t *testing.T) {

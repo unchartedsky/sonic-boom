@@ -4,7 +4,6 @@ go 1.27
 
 require (
 	github.com/Kong/go-pdk v0.11.2
-	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/creasty/defaults v1.11.0
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/eko/gocache/lib/v4 v4.4.0
@@ -29,6 +28,7 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
