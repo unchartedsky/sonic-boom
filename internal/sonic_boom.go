@@ -155,7 +155,7 @@ func (conf *Config) cacheVersion() string {
 		return fromEnv
 	}
 
-	// 캐시 키 알고리즘 전환(hashstructure → 직렬화+xxhash) 구획 마커 —
+	// 캐시 키 알고리즘 전환(hashstructure → 직렬화+sha256) 구획 마커 —
 	// 신구 키가 섞이지 않게 기본 버전만 구분한다. env 사용자는 자기 관리.
 	return "2-" + Version
 }
@@ -389,8 +389,10 @@ func (conf *Config) Access(kong *pdk.PDK) {
 		)
 		defer span.End()
 
-		// Store span context in PDK context for later use in Response
-		if err := SetPluginEx(kong, "span_context", span.SpanContext()); err != nil {
+		// Response 페이즈로 부모 컨텍스트를 전달한다. SetPluginEx는 JSON 마샬을
+		// 하므로 SpanContext를 그대로 저장하면 복원 시 string이 돌아온다(PE5) —
+		// 직렬화 가능한 DTO로 저장한다.
+		if err := SetPluginEx(kong, "span_context", newSpanContextDTO(span.SpanContext())); err != nil {
 			logger.Error().Err(err).Msg("Failed to store span context")
 		}
 	}
@@ -775,20 +777,18 @@ func (conf *Config) Response(kong *pdk.PDK) {
 	var span trace.Span
 
 	if otelEnabled {
-		// Get the parent span context
-		spanCtxRaw, err := GetPluginAny(kong, "span_context")
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to get span context")
-			return
+		// 부모 컨텍스트 복원 실패는 저장 경로를 중단시키지 않는다(PE5) — 무효
+		// 부모로 계속해 cacheSignal 처리를 진행한다.
+		var dto spanContextDTO
+		if err := GetPluginAnyEx(kong, "span_context", &dto); err != nil {
+			logger.Error().Err(err).Msg("Failed to get span context; continuing without parent")
 		}
-		spanCtx, ok := spanCtxRaw.(trace.SpanContext)
-		if !ok {
-			logger.Error().Msg("Invalid span context type")
-			return
+		parent, err := spanContextFromDTO(dto)
+		if err != nil {
+			logger.Error().Err(err).Msg("Invalid span context; continuing without parent")
 		}
 
-		ctx := context.Background()
-		ctx = trace.ContextWithSpanContext(ctx, spanCtx)
+		ctx := trace.ContextWithSpanContext(context.Background(), parent)
 		_, span = tracer.Start(ctx, "sonic-boom.Response")
 		defer span.End()
 	}
