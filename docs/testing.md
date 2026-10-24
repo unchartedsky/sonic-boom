@@ -107,10 +107,13 @@ gzip suite(`test/upstream/nginx.conf`가 유일한 압축 지점 — `gzip_proxi
 
 ## 새 캐시 전략 추가 시
 
+세 게이트웨이 공통(누락 시 해당 게이트웨이 e2e에서 간헐 실패):
+
 1. `internal/sonic_boom_{strategy}_test.go` — put/get, TTL, 동시성, marshal, 연결 실패 패턴
-2. `config_v1.yml` — 전략용 service·route 정의
-3. `scripts/smoke_{strategy}.sh` — `smoke_lib.sh`를 라우트 prefix로 호출하는 thin wrapper
-4. `Makefile` e2e 타깃에 스크립트 추가
+2. `config_v1.yml`·`config_lua.yml`·`config_apisix.yaml` — 전략용 service·route 정의(3종 모두, 라우트 prefix 통일)
+3. `scripts/smoke_{strategy}.sh` — `smoke_lib.sh`를 라우트 prefix로 호출(Go는 4줄 wrapper, Lua는 `common.sh`의 `lua_smoke` 헬퍼 경유)
+4. `Makefile` e2e 타깃(`e2e_gateway` define)에 스크립트 추가 — `scripts/common.sh`의 `gw_env`가 GW·PROFILE·SVC·PORT를 계산한다
+5. 대조군 라우트(fill_lock off)를 스탬피드 게이트 검증용으로 함께 추가한다면 위 4곳 + `assert_burst_le/ge` 배선까지
 
 ## CI 잡 경계 — 게이트웨이별 분리(APISIX 확장 규약)
 
