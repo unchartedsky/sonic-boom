@@ -4,6 +4,26 @@ _format_version: "1.1"
 # log·in_memory 필드 없음(Lua 스키마 미선언), 검증 고정 라우트(nomatch·ctgate·maxsize·setcookie) 추가.
 services:
   - host: mock-upstream
+    name: example-lua-cache-control
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-cache-control
+        paths:
+          - /lua-cache-control
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          response_code: [200, 301, 404]
+          request_method: [GET, HEAD, POST, PUT]
+          content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+          vary_headers: [Authorization]
+          cache_ttl: 15
+          cacheable_body_max_size: 1000000
+          strategy: in-memory
+
+  - host: mock-upstream
     name: example
     port: 80
     protocol: http
@@ -30,6 +50,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -50,6 +71,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -134,6 +156,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -157,6 +180,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -180,6 +204,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -310,6 +335,7 @@ services:
     plugins:
       - name: sonic-boom-lua
         config:
+          cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
           response_code: [200, 301, 404]
           request_method: [GET, HEAD, POST, PUT]
           content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]

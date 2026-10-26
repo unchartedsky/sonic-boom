@@ -26,6 +26,21 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-probe(/.*)", "$1"]
 
+  - id: lua-cache-control
+    uri: /lua-cache-control/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-cache-control(/.*)", "$1"]
+      sonic-boom-lua:
+        response_code: [200, 301, 404]
+        request_method: [GET, HEAD, POST, PUT]
+        content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
+        vary_headers: [Authorization]
+        cache_ttl: 15
+        cacheable_body_max_size: 1000000
+        strategy: in-memory
+
   - id: lua-in-memory
     uri: /lua-in-memory/*
     upstream_id: mock
@@ -33,6 +48,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-in-memory(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -48,6 +64,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-in-memory-vary(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -107,6 +124,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-redis(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -125,6 +143,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-redis-vary(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -143,6 +162,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-redis-cluster(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -160,6 +180,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/lua-redis-cluster-vary(/.*)", "$1"]
       sonic-boom-lua:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]
@@ -306,7 +327,10 @@ routes:
     plugins:
       sonic-boom-lua:
         strategy: in-memory
-        cache_control: true
+        # 미선언 필드 거부 고정용 — cache_control은 2026-10-26 포팅으로 정식 필드가 됐고,
+        # client_side_cache가 KTD7 미선언 대상을 이어받는다.
+        client_side_cache:
+          enabled: true
 
   # 5종 벤치 — MISS는 in-memory·fill-lock 끔(내장 캐시와 같은 무락 조건).
   - id: lua-maxsize-nolock

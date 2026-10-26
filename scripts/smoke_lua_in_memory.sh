@@ -27,7 +27,7 @@ key="$(curl -s -D- -o /dev/null -m 10 "$B/lua-in-memory/api/users?kp=1" | tr -d 
 echo "  X-Cache-Key 접두: ${key%%:*} (기대 ${GW_KEY_PREFIX})"
 [[ "${key}" == "${GW_KEY_PREFIX}:"* ]] || { echo "FAIL: 키 접두 ${GW_KEY_PREFIX} 아님 — '${key}'" >&2; exit 1; }
 
-# APISIX: 미구현 필드(cache_control) 라우트는 스키마에서 거부돼 그 라우트만 로드되지 않는다.
+# APISIX: 미선언 필드(client_side_cache — cache_control은 포팅으로 정식 편입) 라우트는 스키마에서 거부돼 그 라우트만 로드되지 않는다.
 # (Kong-Lua는 선언형 로드 전체가 거부되므로 별도 경로로 검증한다.)
 if [[ "${GW_SVC}" == "apisix" ]]; then
 	# 업스트림 목업도 404를 줄 수 있어 상태 코드만으론 거부와 수락이 갈리지 않는다 —
@@ -37,7 +37,7 @@ if [[ "${GW_SVC}" == "apisix" ]]; then
 	[[ "${body}" == *"404 Route Not Found"* ]] || { echo "FAIL: 스키마 거부 라우트가 살아 있다" >&2; exit 1; }
 	# 로그를 먼저 담는다 — pipefail 아래 grep -q가 일찍 끝나면 logs가 SIGPIPE로 실패한다.
 	logs="$(docker compose logs "${GW_SVC}" 2>&1)"
-	[[ "${logs}" == *"found cache_control, key: /routes/lua-schema-reject"* ]] \
+	[[ "${logs}" == *"found client_side_cache, key: /routes/lua-schema-reject"* ]] \
 		|| { echo "FAIL: 스키마 거부 로그 없음" >&2; exit 1; }
 	echo "  스키마 거부 로그: OK"
 	# strategy=redis인데 redis 블록이 없는 라우트: YAML 배치는 로드 거부가 불가능하므로(실측 —

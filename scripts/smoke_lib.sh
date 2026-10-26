@@ -190,25 +190,30 @@ main() {
 	echo "== ${STRATEGY} e2e =="
 	wait_for_kong "${BASE}"
 
-	# 0)·0-1) 스키마 거부 시나리오 — Lua(kong-lua)는 cache_ttl 0·cache_control을
-	# 선언형 로드 단계에서 거부해 라우트 자체가 없다. SKIP_SCHEMA_ASSERT=1이면 건너뛰고
-	# 그 거부는 'kong config parse 무효 config exit≠0'으로 별도 검증한다(기본 off: Go 경로 무변경).
+	# 0)·0-1) 스키마 거부 시나리오 — Kong 선언형 로드만 거부하는 것(cache_ttl 0)은
+	# Lua에서 라우트 자체가 없다. SKIP_SCHEMA_ASSERT=1이면 건너뛴다.
+	# cache_control 가드 블록은 이제 Lua도 라우트가 있어(스키마 기본 true) 무조건 돈다 —
+	# 가드 무효화(필드 생략 라우트가 Bypass를 못 돌려주면)를 이 블록이 잡는다.
 	if [[ -z "${SKIP_SCHEMA_ASSERT:-}" ]]; then
 		assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
+	fi
 
-		# cache_control=true 옵트인 가드: 무관 요청은 캐시되고, Authorization·
+	if true; then
+		# 요청층 cache_control 가드(기본 on): 무관 요청은 캐시되고, Authorization·
 		# no-store·no-cache 요청은 매번 Bypass다(조회 이전 차단).
-		# 전략 태그 — /cache-control 키가 스모크 3종에서 공유되면 스모크 간 TTL 타이밍 의존이 생긴다
-		local cc_url="${BASE}/cache-control/api/users?page=${STRATEGY}-ae4"
+		# 전략 태그 — 키가 스모크 3종에서 공유되면 스모크 간 TTL 타이밍 의존이 생긴다
+		local cc_base="${BASE}/cache-control"
+		[[ "${ROUTE}" == /lua* ]] && cc_base="${BASE}/lua-cache-control"
+		local cc_url="${cc_base}/api/users?page=${STRATEGY}-ae4"
 		assert_status Miss "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 첫 요청(Miss)"
 		assert_status Hit "$(status_of "$(curl_h "${cc_url}")")" "cache_control 평문 재요청(Hit)"
 		local cc_auth="Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ="
-		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${BASE}/cache-control/api/users?page=ae5")")" "cache_control Authorization 거부"
-		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${BASE}/cache-control/api/users?page=ae5")")" "cache_control Authorization 재요청"
-		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${BASE}/cache-control/api/users?page=ae6")")" "cache_control no-store 거부"
-		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${BASE}/cache-control/api/users?page=ae6")")" "cache_control no-store 재요청"
-		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${BASE}/cache-control/api/users?page=ae7")")" "cache_control no-cache 거부"
-		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${BASE}/cache-control/api/users?page=ae7")")" "cache_control no-cache 재요청"
+		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${cc_base}/api/users?page=ae5")")" "cache_control Authorization 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H "${cc_auth}" "${cc_base}/api/users?page=ae5")")" "cache_control Authorization 재요청"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${cc_base}/api/users?page=ae6")")" "cache_control no-store 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${cc_base}/api/users?page=ae6")")" "cache_control no-store 재요청"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${cc_base}/api/users?page=ae7")")" "cache_control no-cache 거부"
+		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${cc_base}/api/users?page=ae7")")" "cache_control no-cache 재요청"
 	fi
 
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
