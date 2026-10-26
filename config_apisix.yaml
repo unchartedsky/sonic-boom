@@ -370,6 +370,18 @@ routes:
         cache_ttl: 300
         cache_http_status: [404]
 
+  # U5 벤치 — 큰 본문(약 100KB) HIT 측정용(config_lua.yml의 /lua-bigbody와 같다).
+  - id: lua-bigbody
+    uri: /lua-bigbody/*
+    upstream_id: mock
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/lua-bigbody(/.*)", "$1"]
+      sonic-boom-lua:
+        strategy: in-memory
+        cache_ttl: 300
+        cacheable_body_max_size: 200000
+
   # 코어 자기검증(골든 벡터·필터·엔트리 왕복·fill-lock 계약) — Nginx 런타임에서만 돈다.
   - id: selfcheck
     uri: /selfcheck/*

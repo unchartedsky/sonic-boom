@@ -809,3 +809,20 @@ services:
           strategy: in-memory
           fill_lock:
             enabled: false
+
+  # U5 벤치 — 큰 본문(약 100KB) HIT 측정용. TTL을 넉넉히(300s) 둬 측정 중 만료가 없다.
+  - host: mock-upstream
+    name: example-go-bigbody
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-bigbody
+        paths:
+          - /go-bigbody
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_ttl: 300
+          cacheable_body_max_size: 200000
+          strategy: in-memory

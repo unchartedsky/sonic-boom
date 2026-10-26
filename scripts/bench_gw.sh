@@ -28,12 +28,14 @@ run_bench() { # <url> → "rps p50 p99"
 median() { printf '%s\n' "$@" | sort -g | awk '{a[NR]=$1} END{print (NR%2)?a[(NR+1)/2]:(a[NR/2]+a[NR/2+1])/2}'; }
 max()    { printf '%s\n' "$@" | sort -g | awk '{a[NR]=$1} END{print a[NR]}'; }
 
-suite() { # <이름> <go_url> <lua_url> <warmup_url...>
+suite() { # <이름> <go_url> <lua_url> [warm] — 4번째 인자가 있으면 매 측정 직전 그 대상 URL을 한 번 데운다
 	local name="$1" go_url="$2" lua_url="$3"
 	echo "== ${name} (c=${CONC}, z=${DUR}, 교차 ${ROUNDS}회) =="
 	local gor=() g5=() g9=() lur=() lu5=() lu9=()
 	for _ in $(seq 1 "$ROUNDS"); do
+		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$go_url"
 		read -r r p5 p9 <<<"$(run_bench "$go_url")";  gor+=("$r"); g5+=("$p5"); g9+=("$p9")
+		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$lua_url"
 		read -r r p5 p9 <<<"$(run_bench "$lua_url")"; lur+=("$r"); lu5+=("$p5"); lu9+=("$p9")
 	done
 	echo "GO : RPS[$(printf '%.0f ' "${gor[@]}")] 중앙=$(median "${gor[@]}") 최대편차=$(max "${gor[@]}") p50=$(median "${g5[@]}") p99=$(median "${g9[@]}")"
@@ -147,3 +149,11 @@ curl -sf -o /dev/null http://localhost:8010/lua-in-memory/api/users?bench=hit
 
 suite "HIT (in-memory)"  "http://localhost:8000/in-memory/api/users?bench=hit"  "http://localhost:8010/lua-in-memory/api/users?bench=hit"
 suite "MISS (maxsize)"   "http://localhost:8000/go-maxsize/api/users?bench=miss" "http://localhost:8010/lua-maxsize/api/users?bench=miss"
+
+# U5: redis·redis-cluster 라우트 TTL이 15s라 suite 전체(교차 3회×2×10s=60s)를 미리 데우면
+# 측정 도중 항목이 만료돼 수치가 오염된다. warm 플래그로 측정 직전 그 대상만 다시 데우면
+# 측정 창이 run 하나의 DUR(기본 10s)로 제한돼 TTL(15s) 이하가 유지된다.
+suite "HIT (redis)"         "http://localhost:8000/redis/api/users?bench=hit"         "http://localhost:8010/lua-redis/api/users?bench=hit" warm
+suite "HIT (redis-cluster)" "http://localhost:8000/redis-cluster/api/users?bench=hit" "http://localhost:8010/lua-redis-cluster/api/users?bench=hit" warm
+# TTL 300s — 측정 내내 살아있어 warm 플래그가 필요 없다.
+suite "HIT (bigbody 100KB)" "http://localhost:8000/go-bigbody/api/bigbody?bench=hit"  "http://localhost:8010/lua-bigbody/api/bigbody?bench=hit"

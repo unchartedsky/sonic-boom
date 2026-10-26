@@ -453,3 +453,20 @@ services:
           cache_ttl: 300
           content_type: ["application/json"]
           response_code: [404]
+
+  # U5 벤치 — 큰 본문(약 100KB) HIT 측정용. config_v1.yml의 /go-bigbody 미러.
+  - host: mock-upstream
+    name: example-lua-bigbody
+    port: 80
+    protocol: http
+    routes:
+      - name: route-lua-bigbody
+        paths:
+          - /lua-bigbody
+        strip_path: true
+    plugins:
+      - name: sonic-boom-lua
+        config:
+          strategy: in-memory
+          cache_ttl: 300
+          cacheable_body_max_size: 200000

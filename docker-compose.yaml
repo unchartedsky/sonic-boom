@@ -20,6 +20,7 @@ services:
       - ./test/upstream/response.deflate:/usr/share/nginx/html/response.deflate:ro
       - ./test/upstream/response.br:/usr/share/nginx/html/response.br:ro
       - ./test/upstream/response_big.json:/usr/share/nginx/html/response_big.json:ro
+      - ./test/upstream/bigbody.json:/usr/share/nginx/html/bigbody.json:ro
 
   redis:
     image: redis:8.10.2-alpine
