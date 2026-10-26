@@ -27,6 +27,7 @@
 4. 저장 시점: Go(응답 버퍼링 후 동기) → Lua(redis/cluster는 log 단계 timer 비동기; in-memory는 body_filter 동기)
 5. 버전 불일치 purge 후 상태 라벨 — Go=Bypass, Lua=Miss 폴스루(Lua 키 공간은 캐시 버전이 접두로 분리돼 purge는 방어 코드다)
 6. redis.host 검증 — Go는 required라 미선언 시 전 요청 Bypass, Lua(Kong)는 localhost 기본값으로 fail-open Miss. Kong 선언형 스키마는 조건부 required가 없어(선언하지 않은 서비스까지 검증에 걸침 — 실측) 정렬 불가, 의도적 차이로 문서화한다. APISIX YAML 배치도 로드 거부가 불가능하다(실측: if/then·oneOf 무시, check_schema 훅은 Admin API 모드 전용) — 런타임 fail-open Miss로 Kong-Lua와 동일하며, 로드 강제는 etcd 모드의 check_schema 훅이 담당한다.
+7. 다중값 쿼리 인자 순서 — Go는 값을 정렬해 같은 키(?b=2&b=1 ≡ ?b=1&b=2), Lua는 주어진 순서를 유지해 다른 키. 잘못된 콘텐츠 서빙은 없고 hit-rate 패리티만 어긋난다. parity S15가 이 차이를 양측 기대로 고정한다(2026-10-26).
 
 > 2026-10-22 갱신: 명시 차이 1은 Go에 역포팅돼 해소됐다(U1·U2 — Set-Cookie·private/no-store/no-cache 응답 양쪽 모두 미저장). Lua에 없던 `no-cache` 검사도 추가됐다. 위 목록은 PoC 시점 기록으로 보존한다.
 

@@ -39,4 +39,4 @@
 
 - 큰 본문 HIT의 shm→Lua 본문 복사 비용
 - redis·redis-cluster 전략 핫패스 벤치(현행 벤치는 노드 로컬 메모리만 측정)
-- parity 다중값 인자 순서 시나리오
+- parity 다중값 인자 순서 시나리오 — ✅ 2026-10-26 S15로 착지(kong-lua-verdict 명시 차이 7)
