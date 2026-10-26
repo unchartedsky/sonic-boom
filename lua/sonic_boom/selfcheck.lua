@@ -242,6 +242,58 @@ function _M.run()
     tstore.delete(tkey)
   end
 
+  -- cache_control 요청층 가드(Go cacheableRequest 미러 — internal/sonic_boom.go cacheableRequest):
+  -- true(기본)면 요청 Cache-Control의 no-store/no-cache(대소문자 무관)와 Authorization 요청을
+  -- Bypass, false면 가드 없음. KTD3 — 벡터는 conf에 cache_control을 명시해 코어 판정 경로만 검치고,
+  -- 스키마 기본값 경로(필드 생략)는 U2의 e2e가 담당한다.
+  local function genv(headers, id)
+    local ghdr = {}
+    local gid = "sc-guard-" .. id .. "-" .. ngx.now()
+    return ghdr, {
+      method = function() return "GET" end,
+      req_header = function(_, h) return headers[h] end,
+      path = function() return "/selfcheck-flow" end,
+      path_with_query = function() return "/selfcheck-flow" end,
+      raw_body = function() return "", nil end,
+      ids = function() return gid, "", "" end,
+      set_header = function(n, v) ghdr[n] = v end,
+      log = { err = function() end, notice = function() end },
+    }
+  end
+  local function gconf(cc_on)
+    return {
+      request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
+      cache_version = "sc-guard", fill_lock = { enabled = false },
+      cache_control = cc_on,
+    }
+  end
+  local ghdr_a, genv_a = genv({ Authorization = "Basic dXNlcjpwYXNz" }, "a")
+  local ga, gsb_a = flow.access(gconf(true), genv_a, nil)
+  ok = check(r, "flow cache_control 가드: Authorization 요청 Bypass",
+    ga == nil and gsb_a == nil and ghdr_a["X-Cache-Status"] == "Bypass") and ok
+
+  local ghdr_b, genv_b = genv({ ["Cache-Control"] = "no-store" }, "b")
+  local gb, gsb_b = flow.access(gconf(true), genv_b, nil)
+  ok = check(r, "flow cache_control 가드: no-store 요청 Bypass",
+    gb == nil and gsb_b == nil and ghdr_b["X-Cache-Status"] == "Bypass") and ok
+
+  local ghdr_c, genv_c = genv({ Authorization = "Basic dXNlcjpwYXNz" }, "c")
+  local gc, gsb_c = flow.access(gconf(false), genv_c, nil)
+  ok = check(r, "flow cache_control 가드: false는 Authorization도 캐시",
+    gc == nil and gsb_c ~= nil and gsb_c.key ~= nil
+      and ghdr_c["X-Cache-Status"] == "Miss") and ok
+
+  local ghdr_d, genv_d = genv({ ["Cache-Control"] = "max-age=0, No-Cache" }, "d")
+  local gd, gsb_d = flow.access(gconf(true), genv_d, nil)
+  ok = check(r, "flow cache_control 가드: 대소문자 혼용 no-cache Bypass",
+    gd == nil and gsb_d == nil and ghdr_d["X-Cache-Status"] == "Bypass") and ok
+
+  local ghdr_e, genv_e = genv({ ["Cache-Control"] = "max-age=60" }, "e")
+  local ge, gsb_e = flow.access(gconf(true), genv_e, nil)
+  ok = check(r, "flow cache_control 가드: 무관 디렉티브 정상 캐시",
+    ge == nil and gsb_e ~= nil and gsb_e.key ~= nil
+      and ghdr_e["X-Cache-Status"] == "Miss") and ok
+
   return ok, table.concat(r, "\n")
 end
 

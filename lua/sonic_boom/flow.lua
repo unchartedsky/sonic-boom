@@ -133,6 +133,19 @@ function _M.access(conf, env, ctx)
     return nil, nil
   end
 
+  -- 요청층 cache_control 가드(Go cacheableRequest 미러, 기본 on — 옵트아웃 계약):
+  -- 요청 Cache-Control의 no-store/no-cache(대소문자 무관 부분 일치)와 Authorization
+  -- 자격증명 요청은 캐시에서 제외한다. env 계약엔 판정 오류 경로가 없어 헤더 부재는
+  -- nil=빈 값으로 통과한다(Go의 fail-closed는 PDK 오류 전용).
+  if conf.cache_control then
+    local cc = (env.req_header(ctx, "Cache-Control") or ""):lower()
+    local auth = env.req_header(ctx, "Authorization") or ""
+    if cc:find("no-store", 1, true) or cc:find("no-cache", 1, true) or auth ~= "" then
+      env.set_header("X-Cache-Status", "Bypass")
+      return nil, nil
+    end
+  end
+
   local snap = snapshot_headers(conf, env, ctx)
   local path_with_query = env.path_with_query(ctx)
   local cacheable, ttl = core_filter.match(conf.filters, conf.cache_ttl,

@@ -1,5 +1,5 @@
 -- KTD7: 구현된 동작의 Go Config 필드만 선언한다.
--- 미포함 동작 필드(client_side_cache, log, cache_control)는 의도적 미선언 —
+-- 미포함 동작 필드(client_side_cache, log)는 의도적 미선언 —
 -- 설정에 나오면 알 수 없는 필드로 선언형 로드가 거부된다(침묵의 차이 방지).
 return {
   name = "sonic-boom-lua",
@@ -56,6 +56,8 @@ return {
               },
           } },
           { cache_ttl = { type = "integer", between = { 1, 2147483647 }, default = 300 } },
+          -- 요청층 가드 기본 on(Go cacheableRequest, 옵트아웃 계약) — flow.access의 cache_control 가드
+          { cache_control = { type = "boolean", default = true } },
           { cacheable_body_max_size = { type = "integer", between = { 0, 9223372036854775807 }, default = 0 } },
           { cache_version = { type = "string" } }, -- 미설정=env CACHE_VERSION>플러그인 버전(핸들러 cache_version)
           { strategy = { type = "string", one_of = { "redis", "redis-cluster", "in-memory" }, default = "redis" } },

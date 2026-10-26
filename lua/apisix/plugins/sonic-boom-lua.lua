@@ -14,7 +14,7 @@ product.version = PLUGIN_VERSION
 
 local pool_size = { type = "integer", minimum = 1, maximum = 2147483647, default = 10 }
 
--- Kong 어댑터 schema.lua의 1:1 번역(KTD7). 미구현 동작 필드(cache_control, client_side_cache, log)는
+-- Kong 어댑터 schema.lua의 1:1 번역(KTD7). 미구현 동작 필드(client_side_cache, log)는
 -- 의도적으로 선언하지 않는다 — 모든 객체가 additionalProperties=false라 설정 로드에서 거부된다.
 local schema = {
   type = "object",
@@ -59,6 +59,8 @@ local schema = {
       },
     },
     cache_ttl = { type = "integer", minimum = 1, maximum = 2147483647, default = 300 },
+    -- 요청층 가드 기본 on(Go cacheableRequest, 옵트아웃 계약) — flow.access의 cache_control 가드
+    cache_control = { type = "boolean", default = true },
     cacheable_body_max_size = { type = "integer", minimum = 0, default = 0 },
     cache_version = { type = "string" },
     strategy = { type = "string", enum = { "redis", "redis-cluster", "in-memory" }, default = "redis" },

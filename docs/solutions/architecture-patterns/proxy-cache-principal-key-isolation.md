@@ -59,7 +59,7 @@ tags: [kong, apisix, cache-key, principal, consumer-isolation, authorization, se
 | Set-Cookie 응답 | 처리 없음(원본 결함을 물려받음) | 기본 미캐시(disk는 항상) | 저장·재생(G9) | 미저장(`handler.lua:209`) |
 | `private`/`no-store`/`no-cache` | `cache_control=true`일 때만 | 항상 존중 | 미흡(bake-off G9·cache_control 항목) | 미저장(R4 명시 차이 1) |
 
-> 2026-10-22 갱신: 아래 Examples 표의 sonic-boom 열은 조사 시점 기록이다. U1·U2로 Set-Cookie·private/no-store/no-cache 응답은 Go·Lua 양쪽 모두 무조건 미저장이 됐고, Authorization 가드는 U3에서 최초 구현됐고 2026-10-24부터 **기본 on**이다(cache_control 기본값 true, 옵트아웃 계약) — Go판의 G8 기본 무방비는 해소됐다. Lua(Kong·APISIX)은 가드 자체가 미포트라(cache_control 미선언 — 설정 시 거부) 백로그다. 표는 PoC 판정 시점의 스냅샷으로 보존한다.
+> 2026-10-22 갱신: 아래 Examples 표의 sonic-boom 열은 조사 시점 기록이다. U1·U2로 Set-Cookie·private/no-store/no-cache 응답은 Go·Lua 양쪽 모두 무조건 미저장이 됐고, Authorization 가드는 U3에서 최초 구현됐고 2026-10-24부터 **기본 on**이다(cache_control 기본값 true, 옵트아웃 계약) — Go판의 G8 기본 무방비는 해소됐다. Lua(Kong·APISIX) 가드도 **Lua 포팅 완료(2026-10-26)** — cache_control 필드를 기본 true로 노출하고 판정은 코어 flow.lua가 담당한다. 표는 PoC 판정 시점의 스냅샷으로 보존한다.
 
 ## Related
 

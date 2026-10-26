@@ -22,7 +22,7 @@
 ## 명시 차이 요약 (Go dc9c909 대비, R4)
 
 1. `Set-Cookie`·`Cache-Control: private/no-store` 응답 미저장(재생 비교 S8에서 실측 분기)
-2. `cache_control` 스키마 거부 + 기본값 — Go는 2026-10-24부터 cache_control 기본 on(요청층 가드 기본 적용)인데, Lua는 필드 자체가 미선언이라 요청층 가드가 없다(설정 시 거부)(선언형 로드 거부 — Go는 요청 경로 Fatal을 U4 수정으로 강등한 상태였으나 Lua는 로드 시점 거부)
+2. ~~`cache_control` 스키마 거부 + 기본값~~ 해소(2026-10-26 Lua 포팅) — 요청층 cache_control 가드가 Go와 기본 on 동일(기본값 true, 옵트아웃 계약, 판정은 코어 flow.lua 단일 구현). 남은 차이는 미선언 필드(client_side_cache·log)뿐이다
 3. 정규식 엔진 RE2→PCRE(`lua_regex_match_limit 10000` 완화, ReDoS 표면 축소·선형 보장은 상실)
 4. 저장 시점: Go(응답 버퍼링 후 동기) → Lua(redis/cluster는 log 단계 timer 비동기; in-memory는 body_filter 동기)
 5. 버전 불일치 purge 후 상태 라벨 — Go=Bypass, Lua=Miss 폴스루(Lua 키 공간은 캐시 버전이 접두로 분리돼 purge는 방어 코드다)
