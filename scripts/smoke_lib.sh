@@ -198,8 +198,7 @@ main() {
 		assert_status Bypass "$(status_of "$(curl_h "${BASE}/ttl-zero/api/users?page=ae5")")" "cache_ttl 0 거절"
 	fi
 
-	if true; then
-		# 요청층 cache_control 가드(기본 on): 무관 요청은 캐시되고, Authorization·
+	# 요청층 cache_control 가드(기본 on): 무관 요청은 캐시되고, Authorization·
 		# no-store·no-cache 요청은 매번 Bypass다(조회 이전 차단).
 		# 전략 태그 — 키가 스모크 3종에서 공유되면 스모크 간 TTL 타이밍 의존이 생긴다
 		local cc_base="${BASE}/cache-control"
@@ -214,7 +213,6 @@ main() {
 		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-store' "${cc_base}/api/users?page=ae6")")" "cache_control no-store 재요청"
 		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${cc_base}/api/users?page=ae7")")" "cache_control no-cache 거부"
 		assert_status Bypass "$(status_of "$(curl_h -H 'Cache-Control: no-cache' "${cc_base}/api/users?page=ae7")")" "cache_control no-cache 재요청"
-	fi
 
 	# 1) 첫 요청은 Miss — 남아 있는 캐시가 회귀를 가리는지 즉시 드러난다
 	assert_status Miss "$(status_of "$(curl_h "${URL}")")" "첫 요청"
