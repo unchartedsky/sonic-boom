@@ -13,6 +13,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false        # 가드 기본 on 이전 동작 유지 — parity S3(Authorization vary 키 분리) 고정용
         response_code:
           - 200
           - 301
@@ -288,6 +289,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code:
           - 200
           - 301
@@ -339,6 +341,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code:
           - 200
           - 301
@@ -500,9 +503,9 @@ services:
           - /noplugins
         strip_path: true
 
-  # cache_control: true 라우트 — Kong 원본 의도의 옵트인 요청 가드(G8 완화).
-  # 요청 Cache-Control의 no-store/no-cache와 Authorization 헤더는 캐시에서
-  # 제외되고, 나머지 요청은 정상 캐시된다(응답 디렉티브 게이트는 설정과 무관).
+  # cache_control 라우트 — 요청층 가드는 이제 기본 on이다. 이 라우트는 가드 켠
+  # 상태의 e2e 고정용(명시 true는 옵트아웃 안내용 문서화 차원). 요청 Cache-Control의
+  # no-store/no-cache와 Authorization 헤더는 캐시에서 제외되고, 나머지는 정상 캐시된다.
   - host: mock-upstream
     name: example-cache-control
     port: 80
@@ -589,6 +592,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code:
           - 200
           - 301
@@ -642,6 +646,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code:
           - 200
           - 301
@@ -694,6 +699,7 @@ services:
     plugins:
     - name: sonic-boom
       config:
+        cache_control: false    # 가드 기본 on 이전 동작 유지 — vary 스위트(Authorization 키 분리) 고정용
         response_code:
           - 200
           - 301

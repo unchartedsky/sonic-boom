@@ -88,7 +88,7 @@ type Config struct {
 	VaryHeaders          []string           `json:"vary_headers" validate:"required" default:"[]"`
 	Filters              []Filter           `json:"filters" validate:"required" default:"[]"`
 	CacheTTL             int                `json:"cache_ttl" validate:"gt=0" default:"300"`
-	CacheControl         bool               `json:"cache_control" validate:"" default:"false"`
+	CacheControl         bool               `json:"cache_control" validate:"" default:"true"` // 기본 on — Authorization·no-store/no-cache 요청을 캐시에서 제외(옵트아웃 계약)
 	CacheableBodyMaxSize int                `json:"cacheable_body_max_size" validate:"gte=0" default:"0"`
 	CacheVersion         string             `json:"cache_version" validate:"" default:""`
 	Strategy             string             `json:"strategy" validate:"required,oneof=redis redis-cluster in-memory" default:"redis"`

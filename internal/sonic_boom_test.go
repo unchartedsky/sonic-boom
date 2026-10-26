@@ -393,7 +393,7 @@ func configDefault() *Config {
 		VaryHeaders:          []string{},
 		Filters:              []Filter{},
 		CacheTTL:             300,
-		CacheControl:         false,
+		CacheControl:         true,
 		CacheableBodyMaxSize: 0,
 		CacheVersion:         "",
 		Strategy:             "redis",
@@ -1056,6 +1056,15 @@ func TestConfig_cacheableRequest_headerReadError(t *testing.T) {
 	}
 }
 
+// cache_control 미설정 시 기본값이 on(요청층 가드 활성)임을 고정한다 —
+// Authorization·no-store/no-cache 요청이 기본으로 캐시되지 않는다(RFC 9111·Kong 원본 정합).
+func TestConfig_New_CacheControlDefaultsOn(t *testing.T) {
+	got := New().(*Config)
+	if !got.CacheControl {
+		t.Fatalf("cache_control 기본값이 on이 아니다: %v", got.CacheControl)
+	}
+}
+
 func TestConfig_cacheableRequest(t *testing.T) {
 	type fields struct {
 		ResponseCodes        []int
@@ -1190,7 +1199,7 @@ func TestConfig_cacheableRequest(t *testing.T) {
 			want1: 2,
 		},
 		{
-			name: "cache_control=false면 Authorization도 무관",
+			name: "명시적으로 cache_control=false로 끄면 Authorization도 캐시",
 			fields: fields{
 				logger:         defaultLogger(),
 				RequestMethods: []string{"GET", "HEAD"},

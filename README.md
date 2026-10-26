@@ -56,6 +56,7 @@ Kong 설치는 선언형 설정 기준 [config_v1.yml](./config_v1.yml)을 참�
 - `filters`의 필터별 `cache_ttl`이 실제 만료에 적용된다. 필터 TTL을 0으로 두거나 생략하면 전역 `cache_ttl`을 **상속**한다(즉시 만료 필터는 만들 수 없다).
 - `content_type`은 대소문자 무시 정확 매치다. 파라미터 변형(`application/json;charset=utf-8` 등)도 목록에 명시해야 캐시된다.
 - `Set-Cookie` 응답이나 `Cache-Control: private/no-store/no-cache` 응답은 저장하지 않는다(개인화 응답 오염 방지 — APISIX proxy-cache 기본값 정합).
+- 요청층 `cache_control` 가드는 **기본 on**이다 — `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청은 캐시에서 제외된다(RFC 9111·Kong 원본 정합). 이전 동작(가드 끔)이 필요하면 라우트에 `cache_control: false`를 명시한다.
 - `fill_lock`(기본 on)은 동시 미스 시 한 요청만 업스트림을 채우게 한다. 패자는 승자의 저장을 폴링 대기하고 승자가 락을 반납하면 즉시 통과한다. TTL(기본 3000ms)은 락의 안전망이다.
 - 설정 검증은 운영에서도 상시 실행되며, 실패 시 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
 
