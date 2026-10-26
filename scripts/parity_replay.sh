@@ -108,16 +108,10 @@ pair "S10 private"  Bypass GET "/go-setcookie/ccprivate/api/users?pr=s10"  "/lua
 pair "S11 no-store" Bypass GET "/go-setcookie/ccnostore/api/users?pr=s11" "/lua-setcookie/ccnostore/api/users?pr=s11"
 pair "S12 no-cache" Bypass GET "/go-setcookie/ccnocache/api/users?pr=s12" "/lua-setcookie/ccnocache/api/users?pr=s12"
 
-# S13 cache_control 요청 가드 — Go 전용 옵트인(Lua는 cache_control을 스키마에서
-# 거부한다, R4 명시 차이 2). Authorization 요청은 매번 Bypass다.
-if [[ "${PARITY_PAIR}" == go-lua ]]; then
-	hit go "$A" GET "/cache-control/api/users?pr=s13" -H "$A1"
-	hit go "$A" GET "/cache-control/api/users?pr=s13" -H "$A1"
-	echo "  S13 가드: go=[$(cat "${TMPD}/go.res")] (기대 Bypass×2)"
-	[[ "$(cut -d'|' -f2 <<<"$(cat "${TMPD}/go.res")")" == "Bypass" ]] || { echo "FAIL: S13 cache_control 가드" >&2; exit 1; }
-else
-	echo "  S13 가드: 건너뜀(Go 전용 — 두 Lua 게이트웨이 모두 cache_control을 스키마에서 거부)"
-fi
+# S13 cache_control 요청 가드 — Lua도 포팅으로 스키마 기본 on이 됐다(명시 차이 2 해소).
+# 가드 켠 라우트에서 Authorization 요청은 양측 모두 Bypass다. a_path가 쌍별 경로를 고른다:
+# go-lua는 Go /cache-control ↔ Lua /lua-cache-control, lua-apisix는 양쪽 /lua-cache-control.
+pair "S13 가드" Bypass GET "/cache-control/api/users?pr=s13" "/lua-cache-control/api/users?pr=s13" -H "$A1"
 
 # S9 Age 존재·증가(갱신 조건 정합) — 신선한 키를 데운 뒤 두 Hit로 관측
 S9A="$(a_path /redis/api/users /lua-redis/api/users)?pr=s9"
@@ -130,6 +124,19 @@ hit lua "$B" GET "/lua-redis/api/users?pr=s9"; la2="$(age_of lua)"
 echo "  S9 Age: ${A_TAG} ${ga1}→${ga2}, ${B_TAG} ${la1}→${la2}"
 [[ -n "${ga2:-}" && "${ga2}" -gt "${ga1}" ]] || { echo "FAIL: ${A_TAG} Age 증가 없음" >&2; exit 1; }
 [[ -n "${la2:-}" && "${la2}" -gt "${la1}" ]] || { echo "FAIL: ${B_TAG} Age 증가 없음" >&2; exit 1; }
+# S15 다중값 쿼리 순서 — 같은 파라미터를 순서만 바꿔 재생한다(?b=2&b=1 후 ?b=1&b=2).
+# Go는 다중값을 정렬해 같은 키(2번째 Hit), Lua 변종은 원순서를 유지해 다른 키(2번째 Miss)다
+# (명시 차이 — key.lua는 키만 정렬하고 값 순서는 유지, Go cache_key.go는 값까지 정렬).
+# 양측 기대가 어긋나므로 plain pair 대신 측별 단언으로 고정한다.
+P15="$(a_path /redis/api/users /lua-redis/api/users)"
+hit go "$A" GET "${P15}?b=2&b=1&pr=s15"; gr1="$(cat "${TMPD}/go.res")"
+hit go "$A" GET "${P15}?b=1&b=2&pr=s15"; gr2="$(cat "${TMPD}/go.res")"
+hit lua "$B" GET "/lua-redis/api/users?b=2&b=1&pr=s15"; lr1="$(cat "${TMPD}/lua.res")"
+hit lua "$B" GET "/lua-redis/api/users?b=1&b=2&pr=s15"; lr2="$(cat "${TMPD}/lua.res")"
+want_a2=Miss; [[ "${PARITY_PAIR}" == go-lua ]] && want_a2=Hit # go-lua A측=Go(정렬), lua-apisix A측=kong-lua(원순서)
+echo "  S15 다중값 순서: ${A_TAG} [${gr1} → ${gr2}] (기대 Miss→${want_a2}), ${B_TAG} [${lr1} → ${lr2}] (기대 Miss→Miss)"
+[[ "$(cut -d'|' -f2 <<<"$gr1")" == "Miss" && "$(cut -d'|' -f2 <<<"$gr2")" == "${want_a2}" ]] || { echo "FAIL: S15 ${A_TAG} 다중값 순서 (${gr1} → ${gr2})" >&2; exit 1; }
+[[ "$(cut -d'|' -f2 <<<"$lr1")" == "Miss" && "$(cut -d'|' -f2 <<<"$lr2")" == "Miss" ]] || { echo "FAIL: S15 ${B_TAG} 다중값 순서 (${lr1} → ${lr2})" >&2; exit 1; }
 # S14 cache_version 롤오버 — 두 Lua 게이트웨이가 같은 새 세대 네임스페이스로 갈아타는지.
 # Go는 롤오버 라벨이 Bypass(명시 차이 5)라 go-lua 쌍에서는 비교 불가 — lua-apisix 전용.
 if [[ "${PARITY_PAIR}" == lua-apisix ]]; then
