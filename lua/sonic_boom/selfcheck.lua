@@ -3,6 +3,7 @@
 -- sbk2→sbk3는 principal 성분 추가. 갱신 절차: 같은 "길이:값" 직렬화 규칙을 파이썬으로
 -- 재현해 hashlib로 재계산하고, shasum으로 교차 검증한다).
 local key = require "sonic_boom.key"
+local product = require "sonic_boom.product"
 local filter = require "sonic_boom.filter"
 local entry = require "sonic_boom.entry"
 
@@ -377,7 +378,7 @@ function _M.run()
     consumer = "", service = "", route = "", method = "GET",
     path = "/selfcheck-principal", query = {},
     vary = { Authorization = "Bearer cred-A" }, ttl = 60, body = "",
-  }, "sc-principal")
+  }, "sc-principal", product.key_prefix)
   ok = check(r, "flow principal: vary 선언 Authorization은 vary 성분만(principal 건너뜀)",
     hv["X-Cache-Key"] ~= nil and hv["X-Cache-Key"] == expected_v) and ok
 
