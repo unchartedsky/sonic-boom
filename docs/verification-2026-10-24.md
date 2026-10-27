@@ -1,5 +1,15 @@
 # 검증 결과 (2026-10-24)
 
+## 추가 검증 (2026-10-26)
+
+10-24 이후 두 창구를 더 통과했다: (1) Go cache_control 가드 **기본 on 전환**(TDD — 기본값 단언 RED→GREEN,
+vary 스위트 이주 패턴, 핫패스 비용 실측 문턱 안, 코드 리뷰 lite 접수) (2) **Lua판 가드 포팅과 백로그 정리**
+(flow.lua 코어 가드 + 스키마 2종 + selfcheck 5벡터 TDD RED→GREEN, e2e 라우트 미러링, parity S13 재작성·
+S15 신설 양 쌍 초록, dependabot PR #92 머지·구 브랜치 정리, 벤치 bigbody·redis·redis-cluster HIT 신설,
+스키마 거부 픽스처 client_side_cache 교체). 문서 리뷰 5인(비대화형)과 코드 리뷰 2회(lite 접수) 통과.
+상세: docs/plans/2026-10-26-2110-feat-lua-cache-guard-and-backlog-plan.md, docs/bench-* 문서 10-26 절.
+
+
 **결론: 전 층위 통과.** 창구 8a2f086..56f5c6b(13커밋) — 코드 리뷰 적용 28건 전부 + 창구 밖 잔여(PE5·PE2/PE3, 회귀 게이트, 스키마 실측 정정)까지. 커밋 푸시 완료, CI 초록(4m53s).
 
 ## 스코프

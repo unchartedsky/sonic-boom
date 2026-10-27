@@ -28,8 +28,9 @@ run_bench() { # <url> → "rps p50 p99"
 median() { printf '%s\n' "$@" | sort -g | awk '{a[NR]=$1} END{print (NR%2)?a[(NR+1)/2]:(a[NR/2]+a[NR/2+1])/2}'; }
 max()    { printf '%s\n' "$@" | sort -g | awk '{a[NR]=$1} END{print a[NR]}'; }
 
-suite() { # <이름> <go_url> <lua_url> [warm] — 4번째 인자가 있으면 매 측정 직전 그 대상 URL을 한 번 데운다
-	local name="$1" go_url="$2" lua_url="$3"
+suite() { # <이름> <a_url> <b_url> [warm] [a_label] [b_label] — 4번째 인자가 있으면 매 측정 직전 그 대상 URL을 한 번 데운다. 5·6번째는 출력 라벨(기본 GO/LUA — lua-apisix 쌍에선 KONG-LUA/APISIX로 넘긴다)
+	local name="$1" a_url="$2" b_url="$3"
+	local la="GO" lb="LUA"; [[ -n "${6:-}" ]] && { la="$5"; lb="$6"; }
 	echo "== ${name} (c=${CONC}, z=${DUR}, 교차 ${ROUNDS}회) =="
 	local gor=() g5=() g9=() lur=() lu5=() lu9=()
 	for _ in $(seq 1 "$ROUNDS"); do
@@ -38,8 +39,8 @@ suite() { # <이름> <go_url> <lua_url> [warm] — 4번째 인자가 있으면 �
 		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$lua_url"
 		read -r r p5 p9 <<<"$(run_bench "$lua_url")"; lur+=("$r"); lu5+=("$p5"); lu9+=("$p9")
 	done
-	echo "GO : RPS[$(printf '%.0f ' "${gor[@]}")] 중앙=$(median "${gor[@]}") 최대편차=$(max "${gor[@]}") p50=$(median "${g5[@]}") p99=$(median "${g9[@]}")"
-	echo "LUA: RPS[$(printf '%.0f ' "${lur[@]}")] 중앙=$(median "${lur[@]}") 최대편차=$(max "${lur[@]}") p50=$(median "${lu5[@]}") p99=$(median "${lu9[@]}")"
+	echo "${la}: RPS[$(printf '%.0f ' "${gor[@]}")] 중앙=$(median "${gor[@]}") 최대편차=$(max "${gor[@]}") p50=$(median "${g5[@]}") p99=$(median "${g9[@]}")"
+	echo "${lb}: RPS[$(printf '%.0f ' "${lur[@]}")] 중앙=$(median "${lur[@]}") 최대편차=$(max "${lur[@]}") p50=$(median "${lu5[@]}") p99=$(median "${lu9[@]}")"
 }
 
 sec() { echo "${1%secs}"; }  # hey의 "0.0240secs" → 0.0240
@@ -132,6 +133,9 @@ if [[ "${BENCH_PAIR:-go-lua}" == "lua-apisix" ]]; then
 	suite_overhead "MISS (maxsize)" \
 		"http://localhost:8010/noplugins/api/users?bench=base" "http://localhost:8010/lua-maxsize/api/users?bench=miss" \
 		"http://localhost:8020/noplugins/api/users?bench=base" "http://localhost:8020/lua-maxsize/api/users?bench=miss"
+	suite "HIT (redis)"         "http://localhost:8010/lua-redis/api/users?bench=hit"         "http://localhost:8020/lua-redis/api/users?bench=hit" warm KONG-LUA APISIX
+	suite "HIT (redis-cluster)" "http://localhost:8010/lua-redis-cluster/api/users?bench=hit" "http://localhost:8020/lua-redis-cluster/api/users?bench=hit" warm KONG-LUA APISIX
+	suite "HIT (bigbody 100KB)" "http://localhost:8010/lua-bigbody/api/bigbody?bench=hit"     "http://localhost:8020/lua-bigbody/api/bigbody?bench=hit" "" KONG-LUA APISIX
 	exit 0
 fi
 

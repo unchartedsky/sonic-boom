@@ -53,6 +53,23 @@ main(패자 락 감시 #4 반영 후). 조건은 위와 같다.
 - 회차 편차가 ±40%인 공유 클러스터 특성상 절대값보다 비율(플러그인/자기 기본선)로 읽는다.
   삼각 비교 전체는 `docs/bench-kong-lua-vs-go.md` 같일 재측정 절과 함께 본다.
 
+## 신설 suite 첫 측정 (2026-10-26, 부하 하 샘플)
+
+go-lua 쌍에 신설된 redis·redis-cluster·bigbody HIT suite를 lua-apisix 쌍에도 추가했다(KONG-LUA/APISIX 라벨).
+이 회차는 여러 스택이 떠 있는 부하 하 샘플이라 게이트급 판정(HIT in-memory가 이 회차만 문턱 초과, 직전 회차는 MISS만
+초과 — 판정이 회차마다 뒤집힘)으로 읽지 않고, 신설 경로의 절대 수치 확보가 목적이다. suite 출력 라벨도 이번에
+KONG-LUA/APISIX로 수정했다(기존 GO/LUA 하드코딩은 lua-apisix 절에서 실제를 잘못 표기).
+
+| 신설 suite (원시 RPS 중앙값, KONG-LUA / APISIX) | p50 | p99 |
+|---|---|---|
+| HIT redis | 9,027 / 10,488 | 36.7ms / 28.2ms |
+| HIT redis-cluster | 6,969 / 9,482 | 42.5ms / 31.9ms |
+| HIT bigbody 100KB | 10,009 / 12,397 | 28.8ms / 28.6ms |
+
+- 두 Lua 변종이 같은 코어·같은 redis를 쓰므로 격차는 게이트웨이 프록시 비용 차이다. 세 suite 모두 APISIX가
+  같은 방향으로 앞서며(큰 폭 아님) 기존 결론(APISIX 유의미 열세 없음)과 일치한다.
+- 게이트급 재판정이 필요하면 조용한 기기에서 재측정할 것.
+
 ## 해석과 주의
 
 - **HIT의 플러그인 RPS가 기본보다 높은 이유:** Hit은 access 단계에서 단락해 업스트림을 타지 않는다. 그래서
