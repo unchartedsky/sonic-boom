@@ -69,6 +69,13 @@
   반쪽짜리 해법으로 강등되고, 구성에 의존하지 않는 ①(consumer 미확정 자격증명 요청의 캐시 차단)이 유일한
   근본 해법으로 남는다.
 
+  **업계 정합 확인(2026-10-27).** 시장 조사(docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md, 출처
+  apisix.apache.org proxy-cache)에 따르면 APISIX 내장 proxy-cache는 `consumer_isolation` 기본 true(consumer가
+  있으면 키에 반영)와 상류 `Vary` 적극 존중(Vary: Authorization이면 헤더값별 키 분리)으로 같은 문제를 푼다 —
+  ⑥(자격증명 값의 암시적 vary)과 같은 방향이다. 원형 Kong도 3.16+ `cache_by_principal`을 별도 기능으로
+  추가했다. 어느 내장 캐시도 ①(자격증명 요청 Bypass) 방식은 택하지 않았다. 차이: APISIX 내장은 consumer가
+  없고 상류 Vary도 없으면 공유 슬롯이 남고, ⑥은 Authorization 한정해 그 빈틈까지 자체 분리한다.
+
 ## 판정 회의 안건
 
 1. 종료 기준 대조 승인.
