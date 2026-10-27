@@ -34,10 +34,10 @@ suite() { # <이름> <a_url> <b_url> [warm] [a_label] [b_label] — 4번째 인�
 	echo "== ${name} (c=${CONC}, z=${DUR}, 교차 ${ROUNDS}회) =="
 	local gor=() g5=() g9=() lur=() lu5=() lu9=()
 	for _ in $(seq 1 "$ROUNDS"); do
-		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$go_url"
-		read -r r p5 p9 <<<"$(run_bench "$go_url")";  gor+=("$r"); g5+=("$p5"); g9+=("$p9")
-		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$lua_url"
-		read -r r p5 p9 <<<"$(run_bench "$lua_url")"; lur+=("$r"); lu5+=("$p5"); lu9+=("$p9")
+		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$a_url"
+		read -r r p5 p9 <<<"$(run_bench "$a_url")";  gor+=("$r"); g5+=("$p5"); g9+=("$p9")
+		[[ -n "${4:-}" ]] && curl -sf -o /dev/null "$b_url"
+		read -r r p5 p9 <<<"$(run_bench "$b_url")"; lur+=("$r"); lu5+=("$p5"); lu9+=("$p9")
 	done
 	echo "${la}: RPS[$(printf '%.0f ' "${gor[@]}")] 중앙=$(median "${gor[@]}") 최대편차=$(max "${gor[@]}") p50=$(median "${g5[@]}") p99=$(median "${g9[@]}")"
 	echo "${lb}: RPS[$(printf '%.0f ' "${lur[@]}")] 중앙=$(median "${lur[@]}") 최대편차=$(max "${lur[@]}") p50=$(median "${lu5[@]}") p99=$(median "${lu9[@]}")"
