@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **consumer 미확정 자격증명 요청의 주체 반영(암시적 자격증명 vary)** — consumer가 식별되지 않은 요청이 `Authorization`을 갖고 있으면 익명 공용 슬롯에 캐시하지 않고 Authorization 값을 키 성분(principal)에 반영해 자격증명별 슬롯으로 분리한다. `vary_headers`에 Authorization이 선언돼 있으면 기존 vary 성분으로 충분해 중복 추가하지 않는다. Lua 키 포맷 마커가 sbk2→sbk3으로 바뀐다(구 키는 TTL 만료까지 잔존), Go 키는 직렬화 변경으로 자연 갱신된다. 배경: APISIX priority-99 간극이 권장 커스텀 대역 (0,100)을 따르는 인증에서 발생이 확정된 구성 버그로 판정됐다(2026-10-27) — 판정 기록은 `docs/apisix-verdict.md`.
 - **요청층 `cache_control` 가드 기본 on** — 이전 동작(가드 끔, Authorization 요청도 캐시)에서 바뀐다. `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청이 기본으로 캐시에서 제외된다(RFC 9111·Kong 원본 정합, G8 기본 무방비 해소). 이전 동작이 필요한 라우트는 `cache_control: false`를 명시한다. Lua판(Kong·APISIX)은 이 필드가 미선언이라 가드 자체가 없다 — 포팅 전까지 명시 차이.
 - **캐시 키 직렬화 v2** — 해시를 xxhash64(비암호, 2^32 충돌)에서 sha256(64-hex)으로 바꾸고, 쿼리 다중 값을 NUL join 대신 값 단위 길이 접두로 직렬화해 `?x=a%00b`(단일 값)와 `?x=a&x=b`(다중 값)의 키 충돌을 제거한다. 구 형식 키는 새 키와 절대 겹치지 않아 재조회되지 않으므로, TTL 만료까지 잔존 후 자연 소멸한다(버전 마커 불필요).
 - **`cache_control` 요청 가드 동작 확정** — 기존에는 첫 요청만 저장하고 이후 Bypass했으나, 이제 Kong 원본 의도의 요청 가드로 동작한다(기본값은 아래 항목 참고). 요청 `Cache-Control: no-store/no-cache`와 `Authorization` 헤더는 캐시에서 제외되고, 나머지 요청은 정상 캐시된다(G8 완화). **운영 주의**: 이 플래그를 켠 기존 배포는 응답이 실제로 캐시·재생되기 시작한다.

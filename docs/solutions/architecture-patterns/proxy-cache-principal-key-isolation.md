@@ -36,6 +36,13 @@ tags: [kong, apisix, cache-key, principal, consumer-isolation, authorization, se
    - sonic-boom: Go·Lua 모두 vary 미지정 시 Authorization이 키에도 가드에도 없다 — bake-off G8. Go는 원본의 거부 로직이 주석으로만 남아 있다(`internal/sonic_boom.go:565`).
 3. **주체 확정이 안 되는 요청(쿠키 passthrough 인증)은 두 상류 제품 모두 완전히 막지 않는다.** Kong은 consumer로 확정되지 않으면 route 단위 공유, APISIX도 미식별이면 기본 키(`$host`+`$request_uri`)로 공유하되 cache_key가 임의 NGINX 변수를 받으므로 `$http_cookie` 수동 분리가 가능하다. APISIX가 이 영역에서 갖는 진짜 우위는 응답 신호 방어다: `private`/`no-store`/`no-cache`는 플래그와 무관 항상 존중, `Set-Cookie`는 `cache_set_cookie` 기본 false로 미캐시(디스크 전략은 항상), upstream `Vary` 존중(`Vary: *` 미캐시).
 
+**1층의 정적 보완(2026-10-27 채택).** 1층(consumer 키 반영)은 consumer가 확정된 요청만 돕는다 — 인증이
+늦거나 없는 배포(consumer 미확정)에서는 Authorization 요청이 익명 공용 슬롯을 공유할 수 있다. 이 창은 키
+빌드 시점의 principal 성분으로 막는다: consumer가 비었고 요청이 비어 있지 않은 Authorization을 갖고 있으면
+그 값을 키에 반영해 자격증명별 슬롯으로 분리한다(vary_headers에 Authorization이 선언돼 있으면 vary 성분으로
+충분해 중복 추가하지 않는다). G8 기본 무방비의 잔여 창 — 쿠키·쿼리 토큰 등 비헤더 자격증명 — 은 여전히
+vary_headers 운영 가이드 의존이다.
+
 **codex 제안의 위치와 채택 설계.** "주체 없는 인증 요청 미캐시"는 두 상류의 기본 동작보다 **강한** 동작이다 — 방향은 Azure APIM의 `allow-private-response-caching` 기본 false와 같은 축이다(bake-off §2). 채택을 가로막는 "Go·Lua 파리티" 논거는 부적절하다: 두 구현이 같은 동작이라는 사실은 그 동작이 시장 표준임을 뜻하지 않고 공통 결함일 수 있다(G8·G9가 그 증례). 권고: 채택 시 (a) 옵트아웃 플래그를 붙여 hit율 영향을 통제·측정 가능하게 하고, (b) APISIX식 응답 신호 방어(Set-Cookie 기본 미캐시, `private` 존중 — Lua판에는 이미 있음, `lua/kong/plugins/sonic-boom-lua/handler.lua:209`)를 Go에 역포팅해 파리티를 "강한 쪽"으로 회복한다. 세션 리서치 권고도 "APISIX 방식의 주체 강제 접두를 공유 코어에 이식해 Go·Lua가 동시 획득"이었다(session history) — sonic-boom은 1층이 이미 구현돼 있으므로 남는 과제는 (a)의 부(-) 가드와 (b)의 Go 역포팅이다.
 
 ## Why This Matters

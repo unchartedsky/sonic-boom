@@ -76,6 +76,11 @@
   추가했다. 어느 내장 캐시도 ①(자격증명 요청 Bypass) 방식은 택하지 않았다. 차이: APISIX 내장은 consumer가
   없고 상류 Vary도 없으면 공유 슬롯이 남고, ⑥은 Authorization 한정해 그 빈틈까지 자체 분리한다.
 
+  **채택 기록(2026-10-27).** 수정 방향 ①의 키 반영 변형을 채택해 구현한다 — consumer 미확정 + Authorization
+  요청은 Bypass가 아니라 그 값을 키 성분(principal)에 반영해 자격증명별 슬롯으로 분리한다(APISIX 내장
+  proxy-cache의 `consumer_isolation`과 같은 계열). 코어 단일 구현이라 Go·Kong-Lua·APISIX 세 변종이 동시에
+  적용된다.
+
 ## 판정 회의 안건
 
 1. 종료 기준 대조 승인.
