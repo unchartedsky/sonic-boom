@@ -169,8 +169,10 @@ function _M.access(conf, env, ctx)
   -- 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
   -- Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
   -- credential_vary=false는 이 보완을 끄고 구 동작(익명 공용 슬롯)으로 돌아간다.
+  -- 미선언(nil)은 on으로 본다 — 스키마 기본값이 적용되지 않는 YAML 배치(명시 차이 6)에서도
+  -- 기본-on 계약을 유지한다.
   local principal = ""
-  if conf.credential_vary and (consumer or "") == "" then
+  if conf.credential_vary ~= false and (consumer or "") == "" then
     local auth = env.req_header(ctx, "Authorization") or ""
     if auth ~= "" then
       for _, h in ipairs(conf.vary_headers or {}) do

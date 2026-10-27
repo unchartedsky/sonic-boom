@@ -49,7 +49,7 @@ routes:
         regex_uri: ["^/lua-principal(/.*)", "$1"]
       sonic-boom-lua:
         cache_control: false    # principal 성분 검증용 — 가드를 끈 라우트에서 자격증명별 슬롯을 본다
-        credential_vary: true   # YAML 배치는 스키마 기본값이 적용되지 않아(명시 차이 6) 명시한다
+        # credential_vary는 미선언(nil)도 on이다 — 이 라우트가 YAML 배치의 기본-on 계약을 실증한다
         response_code: [200, 301, 404]
         request_method: [GET, HEAD, POST, PUT]
         content_type: ["text/plain", "text/html; charset=utf-8", "application/json", "application/json; charset=utf-8"]

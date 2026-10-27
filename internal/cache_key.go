@@ -28,9 +28,11 @@ type CacheKey struct {
 }
 
 func (c *CacheKey) String() string {
+	// String()은 디버그 로그("generated from: %v")로 그대로 출력되므로 principal
+	// 원문을 담지 않는다 — 성분 존재는 길이 흔적으로만 남긴다.
 	return fmt.Sprintf(
-		"CacheKey{Consumer: %s, Principal: %s, Service: %s, Route: %s, Method: %s, URL: %s, QueryArgs: %v, Headers: %v, BodyLen: %d, CacheTTL: %d}",
-		c.Consumer, c.Principal, c.Service, c.Route, c.Method, c.URL, c.QueryArgs, c.Headers, len(c.Body), c.CacheTTL,
+		"CacheKey{Consumer: %s, Principal: redacted(len=%d), Service: %s, Route: %s, Method: %s, URL: %s, QueryArgs: %v, Headers: %v, BodyLen: %d, CacheTTL: %d}",
+		c.Consumer, len(c.Principal), c.Service, c.Route, c.Method, c.URL, c.QueryArgs, c.Headers, len(c.Body), c.CacheTTL,
 	)
 }
 
@@ -126,14 +128,15 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 	// 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
 	// 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
 	// Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
-		// 요청층 자격증명 vary(⑥): consumer 미확정 요청이 Authorization을 갖고 있으면 익명
-	// 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
-	// 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
-	// Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
 	// credential_vary=false는 이 보완을 끄고 구 동작(익명 공용 슬롯)으로 돌아간다.
+	// 조회 실패는 fail-closed다 — 빈 값으로 익명 슬롯에 섞는 대신 오류로 캐시 처리를 중단한다.
 	principal := ""
 	if conf.CredentialVary && consumerID == "" && !authInVary {
-		principal, _ = kong.Request.GetHeader("Authorization")
+		var perr error
+		if principal, perr = kong.Request.GetHeader("Authorization"); perr != nil {
+			logger.Error().Err(perr).Msg("Getting request Authorization failed")
+			return "", perr
+		}
 	}
 
 	queryArgs, err := kong.Request.GetQuery(1000)

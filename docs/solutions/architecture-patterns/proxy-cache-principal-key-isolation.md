@@ -45,7 +45,7 @@ vary_headers 운영 가이드 의존이다.
 
 **codex 제안의 위치와 채택 설계.** "주체 없는 인증 요청 미캐시"는 두 상류의 기본 동작보다 **강한** 동작이다 — 방향은 Azure APIM의 `allow-private-response-caching` 기본 false와 같은 축이다(bake-off §2). 채택을 가로막는 "Go·Lua 파리티" 논거는 부적절하다: 두 구현이 같은 동작이라는 사실은 그 동작이 시장 표준임을 뜻하지 않고 공통 결함일 수 있다(G8·G9가 그 증례). 권고: 채택 시 (a) 옵트아웃 플래그를 붙여 hit율 영향을 통제·측정 가능하게 하고, (b) APISIX식 응답 신호 방어(Set-Cookie 기본 미캐시, `private` 존중 — Lua판에는 이미 있음, `lua/kong/plugins/sonic-boom-lua/handler.lua:209`)를 Go에 역포팅해 파리티를 "강한 쪽"으로 회복한다. 세션 리서치 권고도 "APISIX 방식의 주체 강제 접두를 공유 코어에 이식해 Go·Lua가 동시 획득"이었다(session history) — sonic-boom은 1층이 이미 구현돼 있으므로 남는 과제는 (a)의 부(-) 가드와 (b)의 Go 역포팅이다.
 
-> 2026-10-27 갱신: 권고 (a)는 `credential_vary` 필드(기본 true, 옵트아웃 계약)로 구현됐다 — 끄면 구 동작(익명 공용 슬롯)으로 돌아가 hit율 영향을 통제·측정할 수 있다. (b)는 U1·U2로 2026-10-22에 이미 해소돼 있다. APISIX YAML 배치는 스키마 기본값이 적용되지 않으므로(명시 차이 6) principal 검증 라우트는 `credential_vary: true`를 명시한다.
+> 2026-10-27 갱신: 권고 (a)는 `credential_vary` 필드(기본 true, 옵트아웃 계약)로 구현됐다 — 끄면 구 동작(익명 공용 슬롯)으로 돌아가 hit율 영향을 통제·측정할 수 있다. 미선언(nil)은 on으로 본다 — 스키마 기본값이 적용되지 않는 YAML 배치에서도 기본-on 계약이 유지된다(selfcheck 벡터로 고정). (b)는 U1·U2로 2026-10-22에 이미 해소돼 있다.
 
 ## Why This Matters
 

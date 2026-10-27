@@ -162,6 +162,7 @@ type keyEnv struct {
 	t        *testing.T
 	consumer string
 	headers  map[string]string
+	authErr  bool // get_header 오류 주입 — fail-closed 검증용(프로토 목 언마셜 실패 유도)
 }
 
 func (e *keyEnv) Handle(method string, args_d []byte) []byte {
@@ -189,6 +190,10 @@ func (e *keyEnv) Handle(method string, args_d []byte) []byte {
 		return answer("/p")
 	case "kong.request.get_header":
 		var arg kong_plugin_protocol.String
+		if e.authErr {
+			// 잘못된 프로토 페이로드 — 브리지 언마셜 실패로 GetHeader 오류를 유도한다
+			return []byte{0xff, 0xfe}
+		}
 		if err := proto.Unmarshal(args_d, &arg); err != nil {
 			e.t.Fatal(err)
 		}
@@ -271,7 +276,7 @@ func TestNewCacheKey_Principal(t *testing.T) {
 	require.Equal(t, kC1, kC2, "consumer 확정 시 자격증명 차이는 슬롯을 나누지 않는다")
 
 	// 5) vary_headers에 Authorization 선언 → principal 건너뛰고 vary 성분만
-	confVary := &Config{logger: logger, CacheTTL: 15, VaryHeaders: []string{"Authorization"}}
+	confVary := &Config{logger: logger, CacheTTL: 15, CredentialVary: true, VaryHeaders: []string{"Authorization"}}
 	kV, err := NewCacheKey(newKeyPDK(t, "", authA), confVary, []byte(""), 15)
 	require.NoError(t, err)
 	expectedV, err := generateCacheKeyID(logger, &CacheKey{
@@ -300,4 +305,29 @@ func TestNewCacheKey_PrincipalDisabled(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, expectedOff, kOff, "credential_vary 끔은 principal 미반영(공개 트래픽 키와 동일)")
+}
+
+// 자격증명 원문은 String()에 나오지 않는다 — 디버그 로그("generated from: %v")가
+// String()을 통째로 찍으므로 원문 유출 경로를 원천에서 끊는다. 성분 존재 여부는
+// 길이 흔적으로 남겨 디버깅 가능성을 유지한다.
+func Test_CacheKeyString_RedactsPrincipal(t *testing.T) {
+	k := &CacheKey{Principal: "Bearer cred-A", Method: "GET", URL: "/p", CacheTTL: 15}
+	s := k.String()
+	require.NotContains(t, s, "cred-A", "자격증명 원문은 String()에 나오지 않는다")
+	require.Contains(t, s, "Principal", "성분 존재는 흔적으로 남긴다")
+}
+
+// 자격증명 조회 실패는 fail-closed다 — 오류를 버려 빈 principal로 익명 슬롯에
+// 캐시하면 서로 다른 자격증명이 같은 슬롯을 공유한다. 읽기 실패 시 판정 불가로
+// 캐시 불가라는 코드베이스 규율(cacheableResponseHeaders)과 같은 축이다.
+func TestNewCacheKey_AuthHeaderErrorFailsClosed(t *testing.T) {
+	conf := &Config{logger: defaultLogger(), CacheTTL: 15, CredentialVary: true}
+	env := &keyEnv{t: t, consumer: "", headers: map[string]string{"Authorization": "Bearer cred-A"}, authErr: true}
+	kong := &pdk.PDK{
+		Client:  client.Client{PdkBridge: bridge.New(bridgetest.MockFunc(env))},
+		Router:  router.Router{PdkBridge: bridge.New(bridgetest.MockFunc(env))},
+		Request: request.Request{PdkBridge: bridge.New(bridgetest.MockFunc(env))},
+	}
+	_, err := NewCacheKey(kong, conf, []byte(""), 15)
+	require.Error(t, err, "자격증명 조회 실패는 오류로 fail-closed돼야 한다")
 }

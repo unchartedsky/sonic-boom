@@ -393,6 +393,18 @@ function _M.run()
   ok = check(r, "flow principal 옵트아웃: credential_vary=false는 자격증명별 분리를 끈다",
     key_off_a ~= nil and key_off_a == h8["X-Cache-Key"]) and ok
 
+  -- 미선언(nil)도 on이다 — 스키마 기본값이 적용되지 않는 APISIX YAML 배치(명시 차이 6)에서도
+  -- 기본-on 계약이 유지돼야 한다.
+  local conf_nil = pconf(false, false)
+  conf_nil.credential_vary = nil
+  local h9, e9 = penv({ Authorization = "Bearer cred-A" }, "")
+  flow.access(conf_nil, e9, nil)
+  local key_nil_a = h9["X-Cache-Key"]
+  local h10, e10 = penv({ Authorization = "Bearer cred-B" }, "")
+  flow.access(conf_nil, e10, nil)
+  ok = check(r, "flow principal 미선언: credential_vary nil은 on으로 본다(기본-on 계약)",
+    key_nil_a ~= nil and key_nil_a ~= h10["X-Cache-Key"]) and ok
+
   return ok, table.concat(r, "\n")
 end
 
