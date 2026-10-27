@@ -1065,6 +1065,16 @@ func TestConfig_New_CacheControlDefaultsOn(t *testing.T) {
 	}
 }
 
+// credential_vary 미설정 시 기본값이 on임을 고정한다 — consumer 미확정 Authorization
+// 요청이 익명 공용 슬롯 대신 자격증명별 슬롯으로 분리된다(해결 문서 권고 (a)의
+// 옵트아웃 계약).
+func TestConfig_New_CredentialVaryDefaultsOn(t *testing.T) {
+	got := New().(*Config)
+	if !got.CredentialVary {
+		t.Fatalf("credential_vary 기본값이 on이 아니다: %v", got.CredentialVary)
+	}
+}
+
 func TestConfig_cacheableRequest(t *testing.T) {
 	type fields struct {
 		ResponseCodes        []int

@@ -168,8 +168,9 @@ function _M.access(conf, env, ctx)
   -- 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
   -- 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
   -- Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
+  -- credential_vary=false는 이 보완을 끄고 구 동작(익명 공용 슬롯)으로 돌아간다.
   local principal = ""
-  if (consumer or "") == "" then
+  if conf.credential_vary and (consumer or "") == "" then
     local auth = env.req_header(ctx, "Authorization") or ""
     if auth ~= "" then
       for _, h in ipairs(conf.vary_headers or {}) do

@@ -126,8 +126,13 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 	// 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
 	// 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
 	// Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
+		// 요청층 자격증명 vary(⑥): consumer 미확정 요청이 Authorization을 갖고 있으면 익명
+	// 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
+	// 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
+	// Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
+	// credential_vary=false는 이 보완을 끄고 구 동작(익명 공용 슬롯)으로 돌아간다.
 	principal := ""
-	if consumerID == "" && !authInVary {
+	if conf.CredentialVary && consumerID == "" && !authInVary {
 		principal, _ = kong.Request.GetHeader("Authorization")
 	}
 

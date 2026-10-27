@@ -219,7 +219,7 @@ func newKeyPDK(t *testing.T, consumer string, headers map[string]string) *pdk.PD
 
 func TestNewCacheKey_Principal(t *testing.T) {
 	logger := defaultLogger()
-	conf := &Config{logger: logger, CacheTTL: 15}
+	conf := &Config{logger: logger, CacheTTL: 15, CredentialVary: true}
 	authA := map[string]string{"Authorization": "Bearer cred-A"}
 	authB := map[string]string{"Authorization": "Bearer cred-B"}
 
@@ -282,4 +282,22 @@ func TestNewCacheKey_Principal(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, expectedV, kV, "vary 선언 Authorization은 vary 성분만 쓰고 principal은 건너뛴다")
+}
+
+// 6) credential_vary: false → principal 미반영(구 동작 회귀 — 옵트아웃 계약).
+// 끄면 consumer 미확정 Authorization 요청이 다시 익명 공용 슬롯을 공유한다.
+func TestNewCacheKey_PrincipalDisabled(t *testing.T) {
+	logger := defaultLogger()
+	conf := &Config{logger: logger, CacheTTL: 15, CredentialVary: false}
+	authA := map[string]string{"Authorization": "Bearer cred-A"}
+
+	kOff, err := NewCacheKey(newKeyPDK(t, "", authA), conf, []byte(""), 15)
+	require.NoError(t, err)
+	expectedOff, err := generateCacheKeyID(logger, &CacheKey{
+		Method: "GET", URL: "/p",
+		QueryArgs: map[string][]string{}, Headers: map[string]string{},
+		Body: []byte(""), CacheTTL: 15,
+	})
+	require.NoError(t, err)
+	require.Equal(t, expectedOff, kOff, "credential_vary 끔은 principal 미반영(공개 트래픽 키와 동일)")
 }

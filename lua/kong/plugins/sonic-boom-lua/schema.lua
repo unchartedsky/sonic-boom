@@ -58,6 +58,8 @@ return {
           { cache_ttl = { type = "integer", between = { 1, 2147483647 }, default = 300 } },
           -- 요청층 가드 기본 on(Go cacheableRequest, 옵트아웃 계약) — flow.access의 cache_control 가드
           { cache_control = { type = "boolean", default = true } },
+          -- 자격증명 vary 기본 on(consumer 미확정 Authorization 요청을 자격증명별 슬롯으로 분리, 옵트아웃 계약) — flow.access의 principal 성분
+          { credential_vary = { type = "boolean", default = true } },
           { cacheable_body_max_size = { type = "integer", between = { 0, 9223372036854775807 }, default = 0 } },
           { cache_version = { type = "string" } }, -- 미설정=env CACHE_VERSION>플러그인 버전(핸들러 cache_version)
           { strategy = { type = "string", one_of = { "redis", "redis-cluster", "in-memory" }, default = "redis" } },

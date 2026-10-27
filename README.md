@@ -60,7 +60,7 @@ Kong 설치는 선언형 설정 기준 [config_v1.yml](./config_v1.yml)을 참�
 - `fill_lock`(기본 on)은 동시 미스 시 한 요청만 업스트림을 채우게 한다. 패자는 승자의 저장을 폴링 대기하고 승자가 락을 반납하면 즉시 통과한다. TTL(기본 3000ms)은 락의 안전망이다.
 - 설정 검증은 운영에서도 상시 실행되며, 실패 시 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
 
-**캐시 키와 세대**: Go판은 요청 성분을 값 단위 길이 접두 직렬화한 뒤 sha256 64-hex를 키로 쓰고(접두 없음), `cache_version`은 키에 없고 Hit 시점 비교로 불일치면 purge한다. 두 Lua 변종은 `{sbl|sba}:{cache_version}:{sha256}` 접두로 세대를 분리한다 — `cache_version`을 바꾸면 새 세대 키 공간으로 갈아탄다. consumer가 식별되지 않은 요청이 `Authorization` 헤더를 갖고 있으면 그 값이 principal 성분으로 키에 반영돼 자격증명별 슬롯이 된다(`vary_headers`에 Authorization이 선언돼 있으면 vary 성분으로 충분해 중복 추가하지 않는다).
+**캐시 키와 세대**: Go판은 요청 성분을 값 단위 길이 접두 직렬화한 뒤 sha256 64-hex를 키로 쓰고(접두 없음), `cache_version`은 키에 없고 Hit 시점 비교로 불일치면 purge한다. 두 Lua 변종은 `{sbl|sba}:{cache_version}:{sha256}` 접두로 세대를 분리한다 — `cache_version`을 바꾸면 새 세대 키 공간으로 갈아탄다. consumer가 식별되지 않은 요청이 `Authorization` 헤더를 갖고 있으면 그 값이 principal 성분으로 키에 반영돼 자격증명별 슬롯이 된다(`vary_headers`에 Authorization이 선언돼 있으면 vary 성분으로 충분해 중복 추가하지 않는다). 기본 on이며 `credential_vary: false`로 끄면 구 동작(익명 공용 슬롯)으로 돌아간다.
 
 **관찰성**: `X-Cache-Status`는 `Miss`(저장 안 된 미스) / `Hit`(캐시 서빙) / `Bypass`(캐시 제외 — 필터 미매치·미저장 응답·검증 실패) / `Refresh`(유효기간 지난 항목 재수급) 4상태다. `X-Cache-Key`로 판정에 쓰인 키를 볼 수 있다.
 
@@ -93,7 +93,7 @@ config:
     cacheable_body_max_size: 100000 # 캐시 고려할 최대 허용 Body 길이
     strategy: redis                 # 캐시 방식
     fill_lock:                      # 캐시 스탬피드 완화(동시 미스 시 1건만 업스트림). 기본 켜짐
-        enabled: true               # 끄면 동시 미스 전원이 업스트림로 간다
+        enabled: true               # 끄면 동시 미스 전원이 업스트림으로 간다
         ttl_ms: 3000                # fill 주도권 락 TTL. 승자 장애 시 자동 해제 상한
         wait_ms: 200                # 패자가 채워지기를 기다리는 상한. 0이면 대기 없이 통과
     redis:
@@ -166,8 +166,8 @@ go test ./internal -run 'Test_InMemory|TestConfig|Test_'
 - [x] Lua 포팅(Kong)·APISIX 어댑터 — 같은 코어, 재생 비교 게이트 ✅ 2026-10-22
 - [x] fill-lock 스탬피드 방어와 락 감시 대기 ✅ 2026-10-24
 - [ ] Kubernetes 예제 추가
-- [ ] Kong proxycache 의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
+- [ ] Kong proxycache의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
 
 ## 참고
 
-- [Feature request plugin instance lifecycle hooks · Issue 78 · Konggo-pdk](https://github.com/Kong/go-pdk/issues/78)
+- [Feature request plugin instance lifecycle hooks · Issue 78 · Kong go-pdk](https://github.com/Kong/go-pdk/issues/78)

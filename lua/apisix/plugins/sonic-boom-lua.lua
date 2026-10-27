@@ -61,6 +61,8 @@ local schema = {
     cache_ttl = { type = "integer", minimum = 1, maximum = 2147483647, default = 300 },
     -- 요청층 가드 기본 on(Go cacheableRequest, 옵트아웃 계약) — flow.access의 cache_control 가드
     cache_control = { type = "boolean", default = true },
+    -- 자격증명 vary 기본 on(consumer 미확정 Authorization 요청을 자격증명별 슬롯으로 분리, 옵트아웃 계약) — flow.access의 principal 성분
+    credential_vary = { type = "boolean", default = true },
     cacheable_body_max_size = { type = "integer", minimum = 0, default = 0 },
     cache_version = { type = "string" },
     strategy = { type = "string", enum = { "redis", "redis-cluster", "in-memory" }, default = "redis" },

@@ -323,11 +323,12 @@ function _M.run()
       log = { err = function() end, notice = function() end },
     }
   end
-  local function pconf(vary_auth)
+  local function pconf(vary_auth, cred_vary)
     return {
       request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
       cache_version = "sc-principal", fill_lock = { enabled = false },
       cache_control = false,
+      credential_vary = cred_vary ~= false,
       vary_headers = vary_auth and { "Authorization" } or nil,
     }
   end
@@ -381,6 +382,16 @@ function _M.run()
   }, "sc-principal", product.key_prefix)
   ok = check(r, "flow principal: vary 선언 Authorization은 vary 성분만(principal 건너뜀)",
     hv["X-Cache-Key"] ~= nil and hv["X-Cache-Key"] == expected_v) and ok
+
+  -- 옵트아웃(해결 문서 권고 (a)): credential_vary=false는 이 보완을 끄고 구 동작(익명
+  -- 공용 슬롯)으로 돌아간다 — 끈 상태에선 자격증명이 달라도 같은 키다.
+  local h7, e7 = penv({ Authorization = "Bearer cred-A" }, "")
+  flow.access(pconf(false, false), e7, nil)
+  local key_off_a = h7["X-Cache-Key"]
+  local h8, e8 = penv({ Authorization = "Bearer cred-B" }, "")
+  flow.access(pconf(false, false), e8, nil)
+  ok = check(r, "flow principal 옵트아웃: credential_vary=false는 자격증명별 분리를 끈다",
+    key_off_a ~= nil and key_off_a == h8["X-Cache-Key"]) and ok
 
   return ok, table.concat(r, "\n")
 end
