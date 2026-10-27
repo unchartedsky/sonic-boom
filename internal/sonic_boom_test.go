@@ -394,6 +394,7 @@ func configDefault() *Config {
 		Filters:              []Filter{},
 		CacheTTL:             300,
 		CacheControl:         true,
+		CredentialVary:       true,
 		CacheableBodyMaxSize: 0,
 		CacheVersion:         "",
 		Strategy:             "redis",
