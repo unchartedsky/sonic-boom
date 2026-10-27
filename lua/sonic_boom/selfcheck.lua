@@ -1,5 +1,7 @@
 -- 골든 벡터 자기검증(Nginx 런타임 전용 — bare luajit엔 ngx.re·openssl FFI가 없다).
--- 기대 해시는 구현과 별개로 파이썬 hashlib가 계산한 값이다(2026-10-23, sbk2 포맷).
+-- 기대 해시는 구현과 별개로 파이썬 hashlib가 계산한 값이다(2026-10-27, sbk3 포맷 —
+-- sbk2→sbk3는 principal 성분 추가. 갱신 절차: 같은 "길이:값" 직렬화 규칙을 파이썬으로
+-- 재현해 hashlib로 재계산하고, shasum으로 교차 검증한다).
 local key = require "sonic_boom.key"
 local filter = require "sonic_boom.filter"
 local entry = require "sonic_boom.entry"
@@ -23,7 +25,7 @@ local GOLDEN = {
       path = "/api/users", query = { page = { "2" } },
       vary = { Authorization = "Basic abc" }, ttl = 15, body = "",
     },
-    hash = "a77103a405e23ded32012fb275bde4f38ff0473dcc43c14a33af78e9d943ede7",
+    hash = "1b1fd88b38256558e357e6969993ae5dae28baa49f17c7cdb1c3646f55e0f757",
   },
   {
     name = "V2 body+POST",
@@ -31,7 +33,7 @@ local GOLDEN = {
       method = "POST", path = "/api/login", query = {}, vary = {}, ttl = 30,
       body = '{"u":"a","p":"b"}',
     },
-    hash = "c70cce71c036ec77fe2f8b24615521e869350ed4eba4b629dd839916c8cf34b6",
+    hash = "6959367929c6d1763b9070dca3464580ed6e6554a7be425139241a593bb1c7bf",
   },
   {
     name = "V3 multi-query",
@@ -40,7 +42,16 @@ local GOLDEN = {
       path = "/x", query = { a = { "1", "2" }, b = { "3" } }, vary = {}, ttl = 300,
       body = "",
     },
-    hash = "ef20363874d8b1795c002d0f484fd4ec7926b31e66a086441b1b7b7ab0fb53ef",
+    hash = "3306edc46ba6e8fd65318d193cfadfc18dcb40b98f29221c2a2786ca6b5b7446",
+  },
+  {
+    name = "V4 principal",
+    input = {
+      consumer = "", principal = "Bearer cred-A", service = "", route = "",
+      method = "GET", path = "/principal", query = {}, vary = {}, ttl = 60,
+      body = "",
+    },
+    hash = "f625f50239b1c7fddd1cb8ceee09fffe565fe48d9f34ebe2193553e9124ec8c9",
   },
 }
 
@@ -57,10 +68,10 @@ function _M.run()
   local sba = key.derive(GOLDEN[1].input, "0.1.0", "sba")
   ok = check(r, "key 접두어 sba", sba == "sba:0.1.0:" .. GOLDEN[1].hash, sba) and ok
 
-  -- 구분자 주입 회귀: sbk2 길이 접두 덕에 단일 값 "a,b"과 복수 값 a·b가 같은 키로 뭉개지지 않는다.
+  -- 구분자 주입 회귀: sbk3 길이 접두 덕에 단일 값 "a,b"과 복수 값 a·b가 같은 키로 뭉개지지 않는다.
   local q1 = key.derive({ method = "GET", path = "/q", query = { x = { "a,b" } }, vary = {}, ttl = 1, body = "" }, "0.1.0")
   local q2 = key.derive({ method = "GET", path = "/q", query = { x = { "a", "b" } }, vary = {}, ttl = 1, body = "" }, "0.1.0")
-  ok = check(r, "key query 구분자 충돌 없음(sbk2)", q1 ~= q2, q1) and ok
+  ok = check(r, "key query 구분자 충돌 없음(sbk3)", q1 ~= q2, q1) and ok
 
   -- 헤더 정리: ratelimit-remaining은 떼고 일반 헤더는 남긴다(plain find — % 이스케이프 잔재 회귀).
   local headers = require "sonic_boom.headers"
@@ -293,6 +304,82 @@ function _M.run()
   ok = check(r, "flow cache_control 가드: 무관 디렉티브 정상 캐시",
     ge == nil and gsb_e ~= nil and gsb_e.key ~= nil
       and ghdr_e["X-Cache-Status"] == "Miss") and ok
+
+  -- 요청층 자격증명 vary(⑥ — U1): consumer 미확정 요청이 Authorization을 갖고 있으면
+  -- 익명 공용 슬롯 대신 자격증명별 슬롯으로 분리된다. vary_headers에 선언된 Authorization은
+  -- 이미 vary 성분으로 들어가므로 principal은 건너뛴다. cache_control=true(기본)면 가드가
+  -- Authorization 요청을 Bypass하므로 이 수정이 닿는 건 cache_control: false 라우트뿐이다.
+  local function penv(headers, consumer_id)
+    local phdr = {}
+    return phdr, {
+      method = function() return "GET" end,
+      req_header = function(_, h) return headers[h] end,
+      path = function() return "/selfcheck-principal" end,
+      path_with_query = function() return "/selfcheck-principal" end,
+      raw_body = function() return "", nil end,
+      ids = function() return consumer_id or "", "", "" end,
+      set_header = function(n, v) phdr[n] = v end,
+      log = { err = function() end, notice = function() end },
+    }
+  end
+  local function pconf(vary_auth)
+    return {
+      request_method = { "GET" }, cache_ttl = 60, strategy = "in-memory",
+      cache_version = "sc-principal", fill_lock = { enabled = false },
+      cache_control = false,
+      vary_headers = vary_auth and { "Authorization" } or nil,
+    }
+  end
+
+  -- 직렬화 성분: principal은 consumer 뒤 "길이:값" 필드로 들어간다(sbk3).
+  local function pinput(principal)
+    return { consumer = "", service = "svc", route = "r", method = "GET",
+      path = "/principal", query = {}, vary = {}, ttl = 60, body = "",
+      principal = principal }
+  end
+  local s_none = key.serialize(pinput(nil))
+  local s_auth = key.serialize(pinput("cred-A"))
+  ok = check(r, "key principal 성분: consumer 없+Authorization → 직렬화에 principal",
+    s_none:sub(1, 4) == "sbk3" and s_none:sub(5, 8) == "0:0:"
+      and s_auth:sub(5, 14) == "0:6:cred-A" and s_auth ~= s_none) and ok
+
+  local h1, e1 = penv({ Authorization = "Bearer cred-A" }, "")
+  flow.access(pconf(), e1, nil)
+  local key_a = h1["X-Cache-Key"]
+  local h2, e2 = penv({ Authorization = "Bearer cred-B" }, "")
+  flow.access(pconf(), e2, nil)
+  local key_b = h2["X-Cache-Key"]
+  ok = check(r, "flow principal: consumer 없+Authorization → 자격증명별 슬롯",
+    key_a ~= nil and key_b ~= nil and key_a ~= key_b) and ok
+
+  local h3, e3 = penv({}, "")
+  flow.access(pconf(), e3, nil)
+  local key_anon = h3["X-Cache-Key"]
+  local h4, e4 = penv({}, "")
+  flow.access(pconf(), e4, nil)
+  ok = check(r, "flow principal: Authorization 없음 → 공개 슬롯 공유(무변동)",
+    key_anon ~= nil and key_anon == h4["X-Cache-Key"]
+      and key_anon ~= key_a and key_anon ~= key_b) and ok
+
+  local h5, e5 = penv({ Authorization = "Bearer cred-A" }, "consumer-1")
+  flow.access(pconf(), e5, nil)
+  local key_c1 = h5["X-Cache-Key"]
+  local h6, e6 = penv({ Authorization = "Bearer cred-B" }, "consumer-1")
+  flow.access(pconf(), e6, nil)
+  ok = check(r, "flow principal: consumer 확정 → principal 미사용(같은 슬롯)",
+    key_c1 ~= nil and key_c1 == h6["X-Cache-Key"]) and ok
+
+  -- vary 선언: "consumer 없+vary 만" 성분으로 파생됐음을 골든 derive로 검친다 —
+  -- principal이 중복으로 들어갔다면 이 정확 일치가 깨진다.
+  local hv, ev = penv({ Authorization = "Bearer cred-A" }, "")
+  flow.access(pconf(true), ev, nil)
+  local expected_v = key.derive({
+    consumer = "", service = "", route = "", method = "GET",
+    path = "/selfcheck-principal", query = {},
+    vary = { Authorization = "Bearer cred-A" }, ttl = 60, body = "",
+  }, "sc-principal")
+  ok = check(r, "flow principal: vary 선언 Authorization은 vary 성분만(principal 건너뜀)",
+    hv["X-Cache-Key"] ~= nil and hv["X-Cache-Key"] == expected_v) and ok
 
   return ok, table.concat(r, "\n")
 end

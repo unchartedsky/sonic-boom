@@ -12,7 +12,11 @@ import (
 )
 
 type CacheKey struct {
-	Consumer  string
+	Consumer string
+	// Principal은 consumer 미확정 요청의 자격증명(Authorization)이다 — 익명 공용
+	// 슬롯 대신 자격증명별 슬롯으로 분리한다(⑥ 요청층 자격증명 vary). consumer가
+	// 있거나 vary_headers에 Authorization이 선언돼 있으면 빈 값으로 남는다.
+	Principal string
 	Service   string
 	Route     string
 	Method    string `validate:"required" `
@@ -25,8 +29,8 @@ type CacheKey struct {
 
 func (c *CacheKey) String() string {
 	return fmt.Sprintf(
-		"CacheKey{Consumer: %s, Service: %s, Route: %s, Method: %s, URL: %s, QueryArgs: %v, Headers: %v, BodyLen: %d, CacheTTL: %d}",
-		c.Consumer, c.Service, c.Route, c.Method, c.URL, c.QueryArgs, c.Headers, len(c.Body), c.CacheTTL,
+		"CacheKey{Consumer: %s, Principal: %s, Service: %s, Route: %s, Method: %s, URL: %s, QueryArgs: %v, Headers: %v, BodyLen: %d, CacheTTL: %d}",
+		c.Consumer, c.Principal, c.Service, c.Route, c.Method, c.URL, c.QueryArgs, c.Headers, len(c.Body), c.CacheTTL,
 	)
 }
 
@@ -103,8 +107,12 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 	//}
 	//_ = log.Debug("pathWithQuery is: ", pathWithQuery)
 
+	authInVary := false
 	headers := make(map[string]string)
 	for _, v := range conf.VaryHeaders {
+		if strings.EqualFold(v, "Authorization") {
+			authInVary = true
+		}
 		headerValue, error := kong.Request.GetHeader(v)
 		if headerValue == "" || error != nil {
 			logger.Debug().Msgf("vary header %s is not found", v)
@@ -112,6 +120,15 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 		}
 		headers[v] = headerValue
 		logger.Debug().Msgf("vary header %s is found: %s", v, headerValue)
+	}
+
+	// 요청층 자격증명 vary(⑥): consumer 미확정 요청이 Authorization을 갖고 있으면 익명
+	// 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
+	// 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
+	// Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
+	principal := ""
+	if consumerID == "" && !authInVary {
+		principal, _ = kong.Request.GetHeader("Authorization")
 	}
 
 	queryArgs, err := kong.Request.GetQuery(1000)
@@ -131,6 +148,7 @@ func NewCacheKey(kong *pdk.PDK, conf *Config, body []byte, cacheTTL int) (string
 
 	cacheKey := &CacheKey{
 		Consumer:  consumerID,
+		Principal: principal,
 		Service:   serviceID,
 		Route:     routeID,
 		Method:    method,
@@ -166,7 +184,7 @@ func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 		}
 	}
 
-	writeField(cacheKey.Consumer, cacheKey.Service, cacheKey.Route, cacheKey.Method, cacheKey.URL)
+	writeField(cacheKey.Consumer, cacheKey.Principal, cacheKey.Service, cacheKey.Route, cacheKey.Method, cacheKey.URL)
 
 	// 맵 항목은 키 정렬 후 기록 — 삽입 순서가 결정론성을 깨지 않게.
 	// 값 하나하나 길이 접두로 기록한다 — NUL join은 `x=a%00b`(단일 값)와
@@ -201,6 +219,7 @@ func generateCacheKeyID(logger *Logger, cacheKey *CacheKey) (string, error) {
 
 	// 해시 형식 전환(십진수 xxhash → 64-hex sha256)에 버전 마커가 없어도 구 키는
 	// 새 키와 절대 겹치지 않는다 — 재조회되지 않은 채 TTL 만료까지 잔존 후 소멸.
+	// principal 성분 추가(2026-10-27)도 마커 없이 같은 원칙으로 자연 전환된다.
 	sum := sha256.Sum256([]byte(b.String()))
 	cacheKeyID := hex.EncodeToString(sum[:])
 	logger.Debug().Msgf("cache key id %s is generated from: %v", cacheKeyID, cacheKey)

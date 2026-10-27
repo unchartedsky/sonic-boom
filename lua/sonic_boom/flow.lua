@@ -164,6 +164,21 @@ function _M.access(conf, env, ctx)
 
   local consumer, service, route = env.ids(ctx)
 
+  -- 요청층 자격증명 vary(⑥): consumer 미확정 요청이 Authorization을 갖고 있으면 익명
+  -- 공용 슬롯 대신 자격증명별 슬롯으로 분리한다. vary_headers에 선언된 Authorization은
+  -- 이미 vary 성분으로 들어가므로 건너뛴다. cache_control=true(기본) 라우트는 가드가
+  -- Authorization 요청을 Bypass하므로 여기에 닿는 건 cache_control: false 라우트뿐이다.
+  local principal = ""
+  if consumer == "" then
+    local auth = env.req_header(ctx, "Authorization") or ""
+    if auth ~= "" then
+      for _, h in ipairs(conf.vary_headers or {}) do
+        if h:lower() == "authorization" then auth = "" break end
+      end
+    end
+    principal = auth
+  end
+
   local vary = {}
   for _, h in ipairs(conf.vary_headers or {}) do
     local v = snap[h]
@@ -173,6 +188,7 @@ function _M.access(conf, env, ctx)
   local version = cache_version(conf)
   local key = core_key.derive({
     consumer = consumer,
+    principal = principal,
     service = service,
     route = route,
     method = method,

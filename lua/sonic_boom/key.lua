@@ -1,7 +1,8 @@
 -- 캐시 키 파생(게이트웨이 중립 — ngx.*/resty.* 만 사용).
 -- 직렬화는 모든 필드와 query·vary의 키/값 하나하나를 "길이:값"으로 인코딩해 붙인다:
 -- 값 안에 어떤 바이트가 와도 필드·값 경계가 흐려지지 않는다(구분자 주입 불가 —
--- `?x=a,b` ≡ `?x=a&x=b` 충돌 방지). "sbk2"은 포맷 자체 버전이다.
+-- `?x=a,b` ≡ `?x=a&x=b` 충돌 방지). "sbk3"은 포맷 자체 버전이다(principal 성분 추가,
+-- 2026-10-27 — 구 sbk2 키는 재조회되지 않은 채 TTL 만료까지 잔존 후 소멸한다).
 local digest = require "resty.openssl.digest"
 local sha256_hex, serialize
 
@@ -38,8 +39,9 @@ local function vary_string(vary)
 end
 
 function serialize(i)
-  return "sbk2"
+  return "sbk3"
     .. field(i.consumer or "")
+    .. field(i.principal or "")
     .. field(i.service or "")
     .. field(i.route or "")
     .. field(i.method)
@@ -56,7 +58,8 @@ function sha256_hex(s)
   return (bin:gsub(".", function(c) return string.format("%02x", c:byte()) end))
 end
 
--- k: {consumer, service, route, method, path, query, vary, ttl, body}
+-- k: {consumer, principal, service, route, method, path, query, vary, ttl, body}
+-- principal: consumer 미확정 요청의 자격증명(Authorization) — flow.lua가 채운다.
 -- version: cache_version(설정). prefix: 제품별 키 접두(기본 sbl, APISIX는 sba) — 해시 입력에 들지 않는다.
 -- 결과 형식은 R3: {prefix}:{version}:{sha256-hex}
 local _M = {}
