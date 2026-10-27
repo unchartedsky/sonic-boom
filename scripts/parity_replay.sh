@@ -137,6 +137,13 @@ want_a2=Miss; [[ "${PARITY_PAIR}" == go-lua ]] && want_a2=Hit # go-lua A측=Go(�
 echo "  S15 다중값 순서: ${A_TAG} [${gr1} → ${gr2}] (기대 Miss→${want_a2}), ${B_TAG} [${lr1} → ${lr2}] (기대 Miss→Miss)"
 [[ "$(cut -d'|' -f2 <<<"$gr1")" == "Miss" && "$(cut -d'|' -f2 <<<"$gr2")" == "${want_a2}" ]] || { echo "FAIL: S15 ${A_TAG} 다중값 순서 (${gr1} → ${gr2})" >&2; exit 1; }
 [[ "$(cut -d'|' -f2 <<<"$lr1")" == "Miss" && "$(cut -d'|' -f2 <<<"$lr2")" == "Miss" ]] || { echo "FAIL: S15 ${B_TAG} 다중값 순서 (${lr1} → ${lr2})" >&2; exit 1; }
+# S17 principal 고정 — cache_control: false 라우트에서 consumer 미확정 Authorization 요청이
+# 자격증명별 슬롯으로 분리되는지(양 변종 동일 시맨틱이라 plain pair로 충분하다).
+P17="$(a_path /go-principal/api/users /lua-principal/api/users)"
+pair "S17-1 auth1 첫"  Miss GET "${P17}?pr=s17" "${P17}?pr=s17" -H "$A1"
+pair "S17-2 auth1 재"  Hit  GET "${P17}?pr=s17" "${P17}?pr=s17" -H "$A1"
+pair "S17-3 auth2"     Miss GET "${P17}?pr=s17" "${P17}?pr=s17" -H "$A2"
+
 # S14 cache_version 롤오버 — 두 Lua 게이트웨이가 같은 새 세대 네임스페이스로 갈아타는지.
 # Go는 롤오버 라벨이 Bypass(명시 차이 5)라 go-lua 쌍에서는 비교 불가 — lua-apisix 전용.
 if [[ "${PARITY_PAIR}" == lua-apisix ]]; then

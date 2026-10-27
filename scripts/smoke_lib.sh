@@ -241,6 +241,18 @@ main() {
 		assert_status Bypass "$(status_of "$(curl_h "${BASE}${ROUTE}/${cc_dir}/api/users?page=sc1")")" "${cc_dir} 재요청"
 	done
 
+	# 3-2) principal 고정(vary 없는 cache_control: false 라우트) — consumer 미확정
+	# Authorization 요청이 principal 성분으로 자격증명별 슬롯에 분리됨을 검증한다.
+	# 같은 자격증명 재요청은 Hit(자격증명별 캐시), 다른 자격증명은 Miss(분리), 헤더 없음도 Miss(익명 슬롯 유지).
+	local pr_base="${BASE}/go-principal"
+	[[ "${ROUTE}" == /lua* ]] && pr_base="${BASE}/lua-principal"
+	local pa="Authorization: Basic cHJpbmNpcGFsLTE="
+	local pb="Authorization: Basic cHJpbmNpcGFsLTI="
+	assert_status Miss "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1")")" "principal auth1 첫 요청(Miss)"
+	assert_status Hit "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1")")" "principal auth1 재요청(Hit)"
+	assert_status Miss "$(status_of "$(curl_h -H "${pb}" "${pr_base}/api/users?page=pr1")")" "principal auth2 다른 슬롯(Miss)"
+	assert_status Miss "$(status_of "$(curl_h "${pr_base}/api/users?page=pr2")")" "principal 익명 요청(Miss — 익명 슬롯 유지)"
+
 	# 4) vary_headers: Authorization 값이 다르면 캐시 키가 분리된다
 	local auth1="dXNlcm5hbWU6cGFzc3dvcmQ="
 	local auth2="dXNlcm5hbWU6cGFzc3dvcmQy"

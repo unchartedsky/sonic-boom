@@ -810,6 +810,24 @@ services:
           fill_lock:
             enabled: false
 
+  # principal 고정 라우트 — cache_control: false + vary 없음. consumer 미확정
+  # Authorization 요청이 principal 성분으로 자격증명별 슬롯에 분리됨을 검증한다(U2).
+  - host: mock-upstream
+    name: example-go-principal
+    port: 80
+    protocol: http
+    routes:
+      - name: route-go-principal
+        paths:
+          - /go-principal
+        strip_path: true
+    plugins:
+      - name: sonic-boom
+        config:
+          cache_control: false
+          cache_ttl: 60
+          strategy: in-memory
+
   # U5 벤치 — 큰 본문(약 100KB) HIT 측정용. TTL을 넉넉히(300s) 둬 측정 중 만료가 없다.
   - host: mock-upstream
     name: example-go-bigbody
