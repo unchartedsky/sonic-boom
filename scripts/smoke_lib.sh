@@ -248,10 +248,11 @@ main() {
 	[[ "${ROUTE}" == /lua* ]] && pr_base="${BASE}/lua-principal"
 	local pa="Authorization: Basic cHJpbmNpcGFsLTE="
 	local pb="Authorization: Basic cHJpbmNpcGFsLTI="
-	assert_status Miss "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1")")" "principal auth1 첫 요청(Miss)"
-	assert_status Hit "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1")")" "principal auth1 재요청(Hit)"
-	assert_status Miss "$(status_of "$(curl_h -H "${pb}" "${pr_base}/api/users?page=pr1")")" "principal auth2 다른 슬롯(Miss)"
-	assert_status Miss "$(status_of "$(curl_h "${pr_base}/api/users?page=pr2")")" "principal 익명 요청(Miss — 익명 슬롯 유지)"
+	# 전략 태그 — Go 스모크 3종은 재시작 없이 ristretto를 공유해 스위트 간 슬롯이 이월된다
+	assert_status Miss "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1-${STRATEGY}")")" "principal auth1 첫 요청(Miss)"
+	assert_status Hit "$(status_of "$(curl_h -H "${pa}" "${pr_base}/api/users?page=pr1-${STRATEGY}")")" "principal auth1 재요청(Hit)"
+	assert_status Miss "$(status_of "$(curl_h -H "${pb}" "${pr_base}/api/users?page=pr1-${STRATEGY}")")" "principal auth2 다른 슬롯(Miss)"
+	assert_status Miss "$(status_of "$(curl_h "${pr_base}/api/users?page=pr2-${STRATEGY}")")" "principal 익명 요청(Miss — 익명 슬롯 유지)"
 
 	# 4) vary_headers: Authorization 값이 다르면 캐시 키가 분리된다
 	local auth1="dXNlcm5hbWU6cGFzc3dvcmQ="
