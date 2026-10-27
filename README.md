@@ -6,7 +6,7 @@ Kong Gateway 3.9.x OSS용 응답 캐시 플러그인. in-memory·redis·redis-cl
 
 | 변종 | 구현 | 위치 | 판정 자료 |
 |------|------|------|-----------|
-| Go (Kong) | go-pdk external plugin 서버 | `main.go` + `internal/` | — |
+| Kong-Go | go-pdk external plugin 서버 | `main.go` + `internal/` | — |
 | Kong-Lua | 게이트웨이 중립 코어 + Kong 어댑터 | `lua/sonic_boom/` + `lua/kong/` | [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md) |
 | APISIX-Lua | 같은 코어 + APISIX 어댑터 | `lua/sonic_boom/` + `lua/apisix/` | [docs/apisix-verdict.md](./docs/apisix-verdict.md) |
 
@@ -60,7 +60,7 @@ Kong 설치는 선언형 설정 기준 [config_v1.yml](./config_v1.yml)을 참�
 - `fill_lock`(기본 on)은 동시 미스 시 한 요청만 업스트림을 채우게 한다. 패자는 승자의 저장을 폴링 대기하고 승자가 락을 반납하면 즉시 통과한다. TTL(기본 3000ms)은 락의 안전망이다.
 - 설정 검증은 운영에서도 상시 실행되며, 실패 시 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
 
-**캐시 키와 세대**: Go판은 요청 성분을 값 단위 길이 접두 직렬화한 뒤 sha256 64-hex를 키로 쓰고(접두 없음), `cache_version`은 키에 없고 Hit 시점 비교로 불일치면 purge한다. 두 Lua 변종은 `{sbl|sba}:{cache_version}:{sha256}` 접두로 세대를 분리한다 — `cache_version`을 바꾸면 새 세대 키 공간으로 갈아탄다.
+**캐시 키와 세대**: Go판은 요청 성분을 값 단위 길이 접두 직렬화한 뒤 sha256 64-hex를 키로 쓰고(접두 없음), `cache_version`은 키에 없고 Hit 시점 비교로 불일치면 purge한다. 두 Lua 변종은 `{sbl|sba}:{cache_version}:{sha256}` 접두로 세대를 분리한다 — `cache_version`을 바꾸면 새 세대 키 공간으로 갈아탄다. consumer가 식별되지 않은 요청이 `Authorization` 헤더를 갖고 있으면 그 값이 principal 성분으로 키에 반영돼 자격증명별 슬롯이 된다(`vary_headers`에 Authorization이 선언돼 있으면 vary 성분으로 충분해 중복 추가하지 않는다).
 
 **관찰성**: `X-Cache-Status`는 `Miss`(저장 안 된 미스) / `Hit`(캐시 서빙) / `Bypass`(캐시 제외 — 필터 미매치·미저장 응답·검증 실패) / `Refresh`(유효기간 지난 항목 재수급) 4상태다. `X-Cache-Key`로 판정에 쓰인 키를 볼 수 있다.
 
@@ -117,7 +117,7 @@ config:
 ...
 ```
 
-Lua판(Kong·APISIX)의 설정 스키마는 Go판과 대부분 같지만 차이가 있다: `cache_control` 옵트인은 Go판 전용이고, `redis.host`는 Kong-Lua에서 기본값 localhost(APISIX YAML 배치는 런타임 fail-open)다. 전체 명시 차이는 [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md)의 명시 차이 목록을 본다.
+Lua판(Kong·APISIX)의 설정 스키마는 Go판과 대부분 같지만 차이가 있다: `redis.host`는 Kong-Lua에서 기본값 localhost(APISIX YAML 배치는 런타임 fail-open)다. 전체 명시 차이는 [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md)의 명시 차이 목록을 본다.
 
 ## 테스트
 
