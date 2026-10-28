@@ -1,30 +1,53 @@
-# Sonic Boom
+# Sonic Boom [![CI](https://github.com/unchartedsky/sonic-boom/workflows/CI/badge.svg)](https://github.com/unchartedsky/sonic-boom/actions/workflows/ci.yml)
 
-![CI](https://github.com/unchartedsky/sonic-boom/workflows/CI/badge.svg)
+Kong Gateway 3.9.x OSS용 응답 캐시 플러그인. in-memory·redis·redis-cluster 세 캐시 전략을 지원하고 두 구현이 같은 코어 계약을 공유한다.
 
-Kong Gateway 3.9.x OSS용 응답 캐시 플러그인. in-memory·redis·redis-cluster 세 캐시 전략을 지원하고, 두 구현이 같은 코어 계약을 공유한다.
+| 변종 | 구현 | 위치 | 사용 가이드 | 판정 자료 |
+|------|------|------|-------------|-----------|
+| Kong-Go | go-pdk external plugin 서버 | `main.go` + `internal/` | [docs/usage-kong-go.md](./docs/usage-kong-go.md) | — |
+| Kong-Lua | 게이트웨이 중립 코어 + Kong 어댑터 | `lua/sonic_boom/` + `lua/kong/` | [docs/usage-kong-lua.md](./docs/usage-kong-lua.md) | [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md) |
+| APISIX-Lua | 같은 코어 + APISIX 어댑터 | `lua/sonic_boom/` + `lua/apisix/` | [docs/usage-apisix.md](./docs/usage-apisix.md) | [docs/apisix-verdict.md](./docs/apisix-verdict.md) |
 
-| 변종 | 구현 | 위치 | 판정 자료 |
-|------|------|------|-----------|
-| Kong-Go | go-pdk external plugin 서버 | `main.go` + `internal/` | — |
-| Kong-Lua | 게이트웨이 중립 코어 + Kong 어댑터 | `lua/sonic_boom/` + `lua/kong/` | [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md) |
-| APISIX-Lua | 같은 코어 + APISIX 어댑터 | `lua/sonic_boom/` + `lua/apisix/` | [docs/apisix-verdict.md](./docs/apisix-verdict.md) |
+필터·저장 게이트·fill-lock 같은 제품 판정은 전부 코어(`lua/sonic_boom/flow.lua`, Go는 `internal/`)에 있고 어댑터는 PDK(Plugin Development Kit) 게터·세터와 단락 방식만 담당한다(그림 1). 무슨 뜻인지, 요청이 어디서 판정되는지는 [동작 방식](./docs/how-it-works.md)이 설명한다.
 
-필터·저장 게이트·fill-lock 같은 제품 판정은 전부 코어(`lua/sonic_boom/flow.lua`, Go는 `internal/`)에 있고, 어댑터는 PDK 게터·세터와 단락 방식만 담당한다.
+```mermaid
+flowchart LR
+    subgraph adapters[어댑터 — 게이트웨이 접속만]
+        konglua[Kong 어댑터<br/>lua/kong/]
+        apisix[APISIX 어댑터<br/>lua/apisix/]
+    end
+    subgraph core[코어 — 판정 규칙]
+        flow[요청 상태기계<br/>lua/sonic_boom/flow.lua]
+    end
+    konglua --> flow
+    apisix --> flow
+    gogo[Kong-Go<br/>internal/] -. 같은 계약의 독립 구현 .-> flow
+```
+
+*그림 1. 판정 규칙은 코어 하나에 있고 어댑터는 게이트웨이 접속만 담는다 — 그래서 세 변종의 동작이 같다.*
+
+## 문서 지도
+
+- **설치·사용** — [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md)
+- **동작·설정** — [동작 방식](./docs/how-it-works.md) · [설정 레퍼런스](./docs/configuration.md)
+- **문제 해결** — [troubleshooting](./docs/troubleshooting.md)
+- **검증·기록** — [testing.md](./docs/testing.md)(테스트 SSOT) · [verification-2026-10-24.md](./docs/verification-2026-10-24.md) · [bench-kong-lua-vs-go](./docs/bench-kong-lua-vs-go.md) · [bench-apisix-vs-kong-lua](./docs/bench-apisix-vs-kong-lua.md) · [bench-five-caches](./docs/bench-five-caches.md)
+- **판정 자료** — [kong-lua-verdict](./docs/kong-lua-verdict.md) · [apisix-verdict](./docs/apisix-verdict.md) · [bakeoff: API GW 캐싱 갭 분석](./docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md)
+- **학습** — [docs/solutions/](./docs/solutions/)
 
 ## 빠른 시작
 
 ```bash
-make test        # 통합 테스트 (compose로 redis·redis-cluster 기동 후 go test -race)
+make test        # 통합 테스트 — compose로 redis·redis-cluster 기동 후 go test -race
 make e2e         # Go판 e2e — 세 캐시 전략 스모크
 make e2e-lua     # Kong-Lua e2e (포트 8010)
 make e2e-apisix  # APISIX e2e (포트 8020)
 make stress      # 스탬피드·CSC 실측 시나리오 + 자동 단언
 ```
 
-e2e는 외부 인터넷 없이 도는다(목업 업스트림 `test/upstream/`). 재생 비교는 `PARITY_PAIR=go-lua|lua-apisix ./scripts/parity_replay.sh`.
+e2e는 외부 인터넷 없이 도는다(목업 업스트림 `test/upstream/`). 게이트웨이 두 개에 같은 요청을 재생해 상태·status·본문 일치를 증명하는 건 `PARITY_PAIR=go-lua|lua-apisix ./scripts/parity_replay.sh`. 테스트 3층 구조와 CI 잡 경계 규약은 [docs/testing.md](./docs/testing.md).
 
-`./run.sh`(air 핫리로드 개발 서버)와 `./test.sh`(레거시 curl 스모크)는 이전 세대 도구다.
+`./run.sh`(air 핫리로드 개발 서버)과 `./test.sh`(curl 스모크 1회)는 이전 세대 도구다.
 
 ## 빌드 및 설치
 
@@ -32,139 +55,41 @@ e2e는 외부 인터넷 없이 도는다(목업 업스트림 `test/upstream/`). 
 make build   # bin/linux-${GOARCH}/sonic-boom 크로스컴파일
 ```
 
-Kong 설치는 선언형 설정 기준 [config_v1.yml](./config_v1.yml)을 참고한다. `config_v2.yml`은 reqres.in 시절 미사용 레거시다.
+설치·선언형 설정·동작 확인은 각 변종의 사용 가이드를 따른다: [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md).
 
 ## 캐시 전략
 
-### In-Memory
-- **용도**: 단일 인스턴스, 고성능 캐시
-- **특징**: Ristretto 기반, 비동기 쓰기, TTL 지원
-- **설정**: `strategy: in-memory`
+| 전략 | 언제 |
+|------|------|
+| `in-memory` | 단일 인스턴스 — 노드 로컬 ristretto 캐시 |
+| `redis` | 여러 게이트웨이 인스턴스가 캐시를 공유 |
+| `redis-cluster` | 대규모 분산 — 자동 샤딩 |
 
-### Redis
-- **용도**: 분산 환경, 지속성 필요
-- **특징**: 네트워크 기반, 클러스터 지원
-- **설정**: `strategy: redis`
+설정 하나는 정확히 하나의 전략을 쓴다. 전략별 필드·기본값은 [설정 레퍼런스](./docs/configuration.md).
 
-### Redis Cluster
-- **용도**: 대규모 분산 환경
-- **특징**: 자동 샤딩, 고가용성
-- **설정**: `strategy: redis-cluster`
+## 핵심 동작 규칙
 
-## 캐시 동작 규칙
+안전에 직결되는 것들. 각 규칙의 판정 위치는 [동작 방식](./docs/how-it-works.md), 전체 규칙은 [설정 레퍼런스](./docs/configuration.md).
 
-- `filters`의 필터별 `cache_ttl`이 실제 만료에 적용된다. 필터 TTL을 0으로 두거나 생략하면 전역 `cache_ttl`을 **상속**한다(즉시 만료 필터는 만들 수 없다).
-- `content_type`은 대소문자 무시 정확 매치다. 파라미터 변형(`application/json;charset=utf-8` 등)도 목록에 명시해야 캐시된다.
-- `Set-Cookie` 응답이나 `Cache-Control: private/no-store/no-cache` 응답은 저장하지 않는다(개인화 응답 오염 방지 — APISIX proxy-cache 기본값 정합).
-- 요청층 `cache_control` 가드는 **기본 on**이다 — `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청은 캐시에서 제외된다(RFC 9111·Kong 원본 정합). 이전 동작(가드 끔)이 필요하면 라우트에 `cache_control: false`를 명시한다.
-- `fill_lock`(기본 on)은 동시 미스 시 한 요청만 업스트림을 채우게 한다. 패자는 승자의 저장을 폴링 대기하고 승자가 락을 반납하면 즉시 통과한다. TTL(기본 3000ms)은 락의 안전망이다.
-- 설정 검증은 운영에서도 상시 실행되며, 실패 시 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
+- 요청측 `cache_control` 가드는 기본 on — `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청은 캐시에서 제외된다(RFC 9111·Kong 원본 정합). 끄려면 라우트에 `cache_control: false`.
+- `Set-Cookie`가 있거나 `Cache-Control`에 `private`·`no-store`·`no-cache`가 있는 응답은 저장하지 않는다.
+- `cache_ttl: 0`은 거부된다 — redis 저장소에서 영구 키가 되기 때문이다.
+- `cacheable_body_max_size` 기본 0은 무제한이다. 본문을 캐시하는 라우트는 반드시 상한을 정한다.
+- `X-Cache-Key` 헤더가 내부 캐시 키를 그대로 노출한다 — 디버깅 편의로 수용된 동작이며 외부 노출이 우려되면 게이트웨이 앞단에서 제거한다.
+- 설정 검증은 요청마다 실행되고 실패해도 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
 
-**캐시 키와 세대**: Go판은 요청 성분을 값 단위 길이 접두 직렬화한 뒤 sha256 64-hex를 키로 쓰고(접두 없음), `cache_version`은 키에 없고 Hit 시점 비교로 불일치면 purge한다. 두 Lua 변종은 `{sbl|sba}:{cache_version}:{sha256}` 접두로 세대를 분리한다 — `cache_version`을 바꾸면 새 세대 키 공간으로 갈아탄다. consumer가 식별되지 않은 요청이 `Authorization` 헤더를 갖고 있으면 그 값이 principal 성분으로 키에 반영돼 자격증명별 슬롯이 된다(`vary_headers`에 Authorization이 선언돼 있으면 vary 성분으로 충분해 중복 추가하지 않는다). 기본 on이며 `credential_vary: false`로 끄면 구 동작(익명 공용 슬롯)으로 돌아간다.
+## 설정
 
-**관찰성**: `X-Cache-Status`는 `Miss`(저장 안 된 미스) / `Hit`(캐시 서빙) / `Bypass`(캐시 제외 — 필터 미매치·미저장 응답·검증 실패) / `Refresh`(유효기간 지난 항목 재수급) 4상태다. `X-Cache-Key`로 판정에 쓰인 키를 볼 수 있다.
-
-**수용된 기본값 두 가지**:
-- `X-Cache-Key` 헤더는 내부 캐시 키를 그대로 노출한다 — 디버깅 편의로 수용된 동작이다. 외부 노출이 우려되는 배포는 게이트웨이 앞단에서 이 헤더를 제거한다.
-- `cacheable_body_max_size` 기본 0은 본문 크기 상한이 없다는 뜻이다 — POST 등 본문을 캐시하는 라우트는 반드시 상한을 설정한다(미설정 시 어떤 크기의 본문도 메모리에 버퍼링된다).
-
-## 설정 예시
-
-```yaml
-...
-config:
-    response_code:                  # 캐시 고려할 HTTP 응답 코드
-        - 200
-        - 301
-        - 404
-    request_method:                 # 캐시 고려할 HTTP 요청 메소드
-        - GET
-        - HEAD
-        - POST
-        - PUT
-    content_type:                   # 캐시 고려할 Content-type 응답 헤더
-        - "text/plain"
-        - "text/html; charset=utf-8"
-        - "application/json"
-        - "application/json; charset=utf-8"
-    vary_headers:
-        - Authorization
-    cache_ttl: 15                   # 캐시할 엔티티의 TTL 값. 기본 300. 0은 거절된다(Redis 영구 키 방지)
-    cacheable_body_max_size: 100000 # 캐시 고려할 최대 허용 Body 길이
-    strategy: redis                 # 캐시 방식
-    fill_lock:                      # 캐시 스탬피드 완화(동시 미스 시 1건만 업스트림). 기본 켜짐
-        enabled: true               # 끄면 동시 미스 전원이 업스트림으로 간다
-        ttl_ms: 3000                # fill 주도권 락 TTL. 승자 장애 시 자동 해제 상한
-        wait_ms: 200                # 패자가 채워지기를 기다리는 상한. 0이면 대기 없이 통과
-    redis:
-        host: redis                 # Go판은 required(미선언 시 전 요청 Bypass). Kong-Lua는 기본값 localhost
-        port: 6379                  # 기본값 6379
-        pool_size: 10               # 기본값 10
-        max_retries: 3              # 재시도 횟수. 기본값 3. 끄려면 -1
-        db_number: 0                # 기본값 0. client_side_cache 활성 시 0이어야 한다
-        client_side_cache:          # 로컬 L1(go-redis 실험 기능). 기본 끔. standalone 전용
-            enabled: false
-            max_entries: 0          # 0이면 라이브러리 기본 상한
-            max_memory_bytes: 0     # 0이면 무제한(항목 수 상한 우선)
-            max_staleness_ms: 0     # 캐시 TTL 이하 권장 — 신선도 계약 보호
-        min_retry_backoff_ms: 8     # 단위는 ms. 기본값 8
-        max_retry_backoff_ms: 512   # 단위는 ms. 기본값 512
-        dial_timeout: 5             # 단위는 초(s)
-        read_timeout: 3             # 단위는 초(s)
-        write_timeout: 3            # 단위는 초(s)
-        pool_timeout: 5             # 단위는 초(s)
-        idle_timeout: 1             # 단위는 초(s)
-...
-```
-
-Lua판(Kong·APISIX)의 설정 스키마는 Go판과 대부분 같지만 차이가 있다: `redis.host`는 Kong-Lua에서 기본값 localhost(APISIX YAML 배치는 런타임 fail-open)다. 전체 명시 차이는 [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md)의 명시 차이 목록을 본다.
-
-## 테스트
-
-단위 → 통합 → e2e 3층 구조. 서버가 필요한 테스트는 compose로 띄우며,
-서버가 없으면 실패한다(fail-fast).
-
-```bash
-# 통합 테스트 (compose가 redis·redis-cluster를 띄우고 go test -race 실행)
-make test
-
-# e2e — 게이트웨이별로 잡이 분리된다(CI 규약: docs/testing.md "CI 잡 경계")
-make e2e          # Go판
-make e2e-lua      # Kong-Lua
-make e2e-apisix   # APISIX
-
-# 재생 비교 — 두 게이트웨이에 같은 요청 묶음을 재생해 상태·status·body 일치를 증명
-PARITY_PAIR=go-lua ./scripts/parity_replay.sh
-
-# 서버 없이 돌아가는 단위 테스트만 빠르게
-go test ./internal -run 'Test_InMemory|TestConfig|Test_'
-```
-
-테스트 가이드는 [docs/testing.md](./docs/testing.md), 최근 검증 결과는 [docs/verification-2026-10-24.md](./docs/verification-2026-10-24.md), 벤치 기록은 [docs/bench-kong-lua-vs-go.md](./docs/bench-kong-lua-vs-go.md)·[docs/bench-apisix-vs-kong-lua.md](./docs/bench-apisix-vs-kong-lua.md)를 본다.
+설정은 라우트마다 붙이고 최소 형태는 전략과 저장소 주소가 전부다 — 나머지는 기본값이 덮는다. 최소 예제는 각 [사용 가이드](./docs/usage-kong-go.md)에, 전 필드·기본값·변종 차이는 [설정 레퍼런스](./docs/configuration.md)에 있다. e2e를 도는 완전한 선언형 예제는 `config_v1.yml`(Kong-Go)·`config_lua.yml`(Kong-Lua)·`config_apisix.yaml`(APISIX).
 
 ## 개발
 
-### 필수 요구사항
-- Go 1.27+
-- Docker & Docker Compose
-
-### 개발 워크플로우
-1. 코드 변경
-2. 통합 테스트: `make test`
-3. e2e: `make e2e`
-4. 커밋 및 푸시
+- Go 1.27+, Docker & Docker Compose
+- 단위 테스트만 빠르게: `go test ./internal -run 'Test_InMemory|TestConfig|Test_'`
+- 린트: `golangci-lint run ./...`(pre-commit 훅 등록)
 
 ## TODO
 
-- [x] `linux/arm64` 컨테이너 이미지 지원 ✅ 2025-02-17
-- [x] 바이너리 릴리즈 ✅ 2025-02-17
-- [x] in-memory 스토어 지원 ✅ 2025-02-17
-- [x] Redis cluster 스토어 지원 ✅ 2025-02-19
-- [x] OpenTelemetry 통합 ✅ 2025-02-19
-- [x] 포괄적인 테스트 커버리지 ✅ 2025-01-21
-- [x] CI/CD 파이프라인 ✅ 2025-01-21
-- [x] Lua 포팅(Kong)·APISIX 어댑터 — 같은 코어, 재생 비교 게이트 ✅ 2026-10-22
-- [x] fill-lock 스탬피드 방어와 락 감시 대기 ✅ 2026-10-24
 - [ ] Kubernetes 예제 추가
 - [ ] Kong proxycache의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
 

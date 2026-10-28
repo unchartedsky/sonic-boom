@@ -4,6 +4,7 @@
 
 ### Added
 
+- **변종별 사용·설정 문서 세트** — 문서 6종 신설: [동작 방식](docs/how-it-works.md)·[설정 레퍼런스](docs/configuration.md)(전 필드·기본값·변종 차이)·변종별 사용 가이드 3종([Kong-Go](docs/usage-kong-go.md)·[Kong-Lua](docs/usage-kong-lua.md)·[APISIX](docs/usage-apisix.md))·[문제 해결 가이드](docs/troubleshooting.md). README는 문서 지도로 재구성했고(캐시 전략·동작 규칙·설정 예시는 하위 문서로 이관), 설정 예제는 e2e를 도는 선언형 설정에서 발췌했다. mermaid 다이어그램 4종 추가(요청 수명주기·저장 게이트·코어/어댑터 구조·상태 판정 근거). CONCEPTS.md에 fill-lock·저장 게이트·cache_control 가드 용어 신설. 계획: `docs/plans/2026-10-28-1400-docs-variant-usage-guides-plan.md`.
 - **개인화 응답 미저장 게이트** — `Set-Cookie` 응답과 `Cache-Control: private/no-store/no-cache` 응답을 저장하지 않는다(G9). 해당 응답은 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소). Lua판에 없던 `no-cache` 검사도 추가됐다.
 
 ### Changed

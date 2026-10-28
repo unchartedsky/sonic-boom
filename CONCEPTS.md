@@ -28,3 +28,12 @@ Access 페이즈가 Response 페이즈로 캐시 키와 TTL만을 전달하는 �
 
 ### 주체 키 분리
 인증 주체(consumer·principal)를 캐시 키에 반영해 사용자별 캐시 네임스페이스를 만드는 정책. 확정된 주체의 무조건 반영이 기본이고, 그 위에 얹는 선택은 주체 없는 인증 요청의 저장 거부다. *Avoid:* consumer isolation, principal isolation — 상류 제품 옵션명(APISIX `consumer_isolation`, Kong `cache_by_principal`)을 sonic-boom 정책어로 쓰지 않는다.
+
+### cache_control 가드
+요청측 캐시 제외 가드(기본 on). `Cache-Control: no-store/no-cache` 요청과 `Authorization` 헤더가 있는 요청을 캐시에서 제외한다. 라우트에 `cache_control: false`를 명시하면 끈다.
+
+### 저장 게이트
+Response 페이즈에서 응답 저장 여부를 판정하는 관문 — status·content-type·Set-Cookie·`Cache-Control: private/no-store/no-cache`·본문 크기. 탈락하면 Miss 라벨을 Bypass로 덮어쓰고, 본문 크기 초과만 예외로 Miss를 유지한다.
+
+### fill-lock
+동시 미스 시 한 요청만 업스트림을 채우게 하는 스탬피드 방어. 토큰 기반 락 획득과 패자의 폴링 대기로 구성되고, 락을 지원하지 않는 store(in-memory)에서는 fail-open으로 전원 통과시킨다.
