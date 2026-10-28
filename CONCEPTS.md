@@ -2,38 +2,38 @@
 
 > Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and ce-compound-refresh process learnings; direct edits are fine. Glossary only, not a spec or catch-all.
 
-## 플러그인 런타임
+## Plugin runtime (플러그인 런타임)
 
-### 외부 플러그인 서버
-Kong 본체와 별도 프로세스로 떠 페이즈 콜백만 수신하는 sonic-boom의 실행 모델. *Avoid:* 사이드카.
+### External plugin server (외부 플러그인 서버)
+sonic-boom's execution model: a separate process from the Kong core that receives only phase callbacks. *Avoid:* sidecar.
 
-인스턴스는 여러 요청을 동시에 처리하고 인스턴스 수명주기 훅이 없어, 설정 초기화는 요청마다 실행된다. 핸들러 패닉에 대한 런타임 쪽 방어가 없어 플러그인 쪽 recover가 유일한 방어선이다.
+An instance handles multiple requests concurrently and has no instance lifecycle hooks, so config initialization runs on every request. The runtime has no defense against handler panics; the plugin's recover is the only line of defense.
 
-### 캐시 전략
-저장소를 고르는 축 — in-memory(노드 로컬), redis(단일), redis-cluster(샤딩). 하나의 플러그인 설정은 정확히 하나의 전략을 쓴다.
+### Cache strategy (캐시 전략)
+The axis for choosing a store — in-memory (node-local), redis (single), redis-cluster (sharded). One plugin config uses exactly one strategy.
 
-### 캐시 시그널
-Access 페이즈가 Response 페이즈로 캐시 키와 TTL만을 전달하는 요청 범위 메시지. 시그널이 남아 있으면 Response가 저장을 시도하고, 없으면 저장하지 않는다.
+### Cache signal (캐시 시그널)
+A request-scoped message by which the Access phase passes only the cache key and TTL to the Response phase. If the signal is still present, Response attempts a store; if not, it does not.
 
-## 캐시 시맨틱
+## Cache semantics (캐시 시맨틱)
 
-### 필터
-경로·헤더 정규식 규칙으로 캐시 대상을 좁히고 규칙별 TTL을 주는 sonic-boom 고유 확장. 어느 필터도 맞지 않으면 캐시에서 제외된다.
+### Filter (필터)
+A sonic-boom-specific extension that narrows cache targets with path and header regex rules and assigns a TTL per rule. If no filter matches, the request is excluded from caching.
 
 ### X-Cache-Status
-캐시 결과 4상태 표기 — Miss(미스로 저장 예정), Hit(캐시로 응답), Bypass(캐시 대상 아님 또는 세대 불일치), Refresh(만료 감지).
+A four-state marker of the cache outcome — Miss (miss, will be stored), Hit (served from cache), Bypass (not a cache target, or generation mismatch), Refresh (expiry detected).
 
 ### cache_version
-캐시 세대 마커. 값을 바꾸면 이전 세대 캐시가 무효가 되고, 변경 경로는 설정 리로드다(env 경로는 프로세스 환경에 고정).
+Cache generation marker. Changing the value invalidates the previous generation of cache; the way to change it is a config reload (the env path is pinned to the process environment).
 
-### 주체 키 분리
-인증 주체(consumer·principal)를 캐시 키에 반영해 사용자별 캐시 네임스페이스를 만드는 정책. 확정된 주체의 무조건 반영이 기본이고, 그 위에 얹는 선택은 주체 없는 인증 요청의 저장 거부다. *Avoid:* consumer isolation, principal isolation — 상류 제품 옵션명(APISIX `consumer_isolation`, Kong `cache_by_principal`)을 sonic-boom 정책어로 쓰지 않는다.
+### Principal key isolation (주체 키 분리)
+A policy that reflects the authenticated principal (consumer, principal) into the cache key to create per-user cache namespaces. Unconditional reflection of an established principal is the default, and the layer on top of that is refusing to store authenticated requests that lack a principal. *Avoid:* consumer isolation, principal isolation — upstream product option names (APISIX `consumer_isolation`, Kong `cache_by_principal`) are not sonic-boom policy terms.
 
-### cache_control 가드
-요청측 캐시 제외 가드(기본 on). `Cache-Control: no-store/no-cache` 요청과 `Authorization` 헤더가 있는 요청을 캐시에서 제외한다. 라우트에 `cache_control: false`를 명시하면 끈다.
+### Request-side cache_control guard (cache_control 가드)
+Request-side cache exclusion guard (on by default). Excludes requests with `Cache-Control: no-store/no-cache` and requests carrying an `Authorization` header from the cache. Setting `cache_control: false` explicitly on a route turns it off.
 
-### 저장 게이트
-Response 페이즈에서 응답 저장 여부를 판정하는 관문 — status·content-type·Set-Cookie·`Cache-Control: private/no-store/no-cache`·본문 크기. 탈락하면 Miss 라벨을 Bypass로 덮어쓰고, 본문 크기 초과만 예외로 Miss를 유지한다.
+### Storage gates (저장 게이트)
+The gates the Response phase evaluates to decide whether to store the response — status, content-type, Set-Cookie, `Cache-Control: private/no-store/no-cache`, body size. Failing a gate overwrites the Miss label with Bypass; only exceeding the body size limit is the exception and keeps Miss.
 
 ### fill-lock
-동시 미스 시 한 요청만 업스트림을 채우게 하는 스탬피드 방어. 토큰 기반 락 획득과 패자의 폴링 대기로 구성되고, 락을 지원하지 않는 store(in-memory)에서는 fail-open으로 전원 통과시킨다.
+A cache stampede defense that lets only one request fill from upstream on a concurrent miss. Consists of token-based lock acquisition and a polling wait by the losers; on stores that do not support locks (in-memory), it fails open and lets everything through.

@@ -1,26 +1,26 @@
-# Kong-Go 사용 가이드
+# Kong-Go Usage Guide
 
-sonic-boom을 Kong Gateway 3.9.x OSS에 **외부 플러그인 서버**(Kong과 별도 프로세스로 떠서 페이즈 콜백만 수신하는 실행 모델)로 붙이는 방법. 동작 원리는 [동작 방식](./how-it-works.md), 필드는 [설정 레퍼런스](./configuration.md)가 담는다.
+How to attach sonic-boom to Kong Gateway 3.9.x OSS as an **external plugin server** (an execution model in which the plugin runs as a separate process from Kong and receives only phase callbacks). [How it works](./how-it-works.md) covers the principles; the [configuration reference](./configuration.md) covers the fields.
 
-## 이 변종을 고르는 이유
+## Why this variant
 
-Go로 읽고 고치고 싶을 때 이 변종이다. 플러그인이 별도 프로세스로 떠서 플러그인 장애가 Kong 프로세스 전체를 덮지 않고 OTel 메트릭·트레이스가 이 변종에만 있다. 반대로 그 프로세스 모델이 지켜야 할 규율이 있다(아래 주의점). 성능은 세 변종이 같은 급이다 — 근거는 [docs/bench-kong-lua-vs-go.md](./bench-kong-lua-vs-go.md).
+Choose this variant when you want to read and modify Go. The plugin runs as a separate process, so a plugin failure does not take down the Kong process itself, and OTel metrics and traces exist only in this variant. In exchange, that process model carries rules you must keep (see Caveats). Performance is in the same class across all three variants; the data is in [docs/bench-kong-lua-vs-go.md](./bench-kong-lua-vs-go.md).
 
-Kong에 이미 Lua 번들이 있거나 별도 프로세스를 띄우고 싶지 않다면 [Kong-Lua 가이드](./usage-kong-lua.md)가 더 가볍다.
+If Kong already ships a Lua bundle or you do not want another process, the [Kong-Lua guide](./usage-kong-lua.md) is lighter.
 
-## 설치
+## Install
 
-원천은 `Dockerfile`과 `docker-compose.yaml`이다 — 이 절차가 그대로 e2e를 띄운다.
+The sources of truth are `Dockerfile` and `docker-compose.yaml`. This procedure is exactly what brings up e2e.
 
-1. **빌드** — `make build`가 `bin/linux-${GOARCH}/sonic-boom`으로 크로스컴파일한다. 대상 머신 아키텍처에 맞춰 `GOARCH`를 지정한다(amd64·arm64).
+1. **Build** — `make build` cross-compiles to `bin/linux-${GOARCH}/sonic-boom`. Set `GOARCH` to match the target machine architecture (amd64, arm64).
 
    ```bash
    GOARCH=arm64 make build
    ```
 
-2. **바이너리 배치** — Kong 호스트에 둔다. 예: `/kong/go-plugins/sonic-boom`.
+2. **Place the binary** — on the Kong host. Example: `/kong/go-plugins/sonic-boom`.
 
-3. **pluginserver 등록** — kong.conf 또는 환경변수 네 가지:
+3. **Register the pluginserver** — four entries in kong.conf or as environment variables:
 
    ```bash
    KONG_PLUGINS=bundled,sonic-boom
@@ -29,11 +29,11 @@ Kong에 이미 Lua 번들이 있거나 별도 프로세스를 띄우고 싶지 �
    KONG_PLUGINSERVER_SONIC_BOOM_QUERY_CMD=/kong/go-plugins/sonic-boom -dump
    ```
 
-4. **선언형 설정 연결** — `KONG_DECLARATIVE_CONFIG=/kong/config.yml`. 저장소의 [config_v1.yml](../config_v1.yml)이 e2e를 도는 완전한 예시다.
+4. **Point at the declarative config** — `KONG_DECLARATIVE_CONFIG=/kong/config.yml`. [config_v1.yml](../config_v1.yml) in this repository is the complete example that runs e2e.
 
-## 최소 설정
+## Minimal configuration
 
-[config_v1.yml](../config_v1.yml)의 `/redis` 라우트에서 필수만 남긴 축소본이다. 나머지는 기본값이 덮는다 — 가드 on, `response_code [200, 301, 404]`, GET·HEAD, content-type 3종.
+A reduced copy of the `/redis` route from [config_v1.yml](../config_v1.yml) that keeps only the required fields. Defaults cover the rest: guards on, `response_code [200, 301, 404]`, GET/HEAD, and the three content types.
 
 ```yaml
 _format_version: "1.1"
@@ -56,13 +56,13 @@ services:
         host: redis
 ```
 
-운영 라우트에서는 `cache_control`을 선언하지 않아 기본 on(가드)을 유지할 것을 권장한다. e2e 설정의 `/redis` 라우트가 `cache_control: false`를 명시하는 건 parity 시나리오(가드를 끈 라우트에서 vary 키 분리 검증) 고정용이지 권장값이 아니다.
+On production routes, keep `cache_control` undeclared so the default (guards on) stays in force. The `/redis` route in the e2e config declares `cache_control: false` because the parity scenario pins it (it verifies vary key isolation on a route with the guard off); it is not a recommended value.
 
-## 동작 확인
+## Verify
 
-저장소 전체 확인은 `make e2e` — 플러그인을 빌드하고 compose로 게이트웨이·redis·redis-cluster를 띄운 뒤 세 전략 스모크를 돌린다.
+For a repository-wide check, run `make e2e`: it builds the plugin, brings up the gateway, redis, and redis-cluster through compose, then runs the smoke tests for all three strategies.
 
-게이트웨이가 이미 떠 있다면 직접 확인한다. 같은 요청을 두 번 보내 상태가 `Miss`에서 `Hit`으로 바뀌는지 본다.
+If the gateway is already up, check it directly. Send the same request twice and watch the status move from `Miss` to `Hit`.
 
 ```bash
 curl -sI http://localhost:8000/my-path | grep -i x-cache
@@ -71,11 +71,11 @@ curl -sI http://localhost:8000/my-path | grep -i x-cache
 # X-Cache-Status: Hit
 ```
 
-두 응답의 `X-Cache-Key`가 같은 값인지도 확인하면 판정 키까지 검증된다. 상태 값의 뜻은 [troubleshooting](./troubleshooting.md)이 정리한다.
+Also check that `X-Cache-Key` holds the same value in both responses; that verifies the judgment key as well. [Troubleshooting](./troubleshooting.md) explains what the status values mean.
 
-## 주의점
+## Caveats
 
-- **외부 플러그인 서버 규율** — 핸들러 패닉 금지, 설정 불변 취급, TTL 0 금지. 이 세 가지를 어기면 e2e가 초록이어도 운영에서 프로세스가 죽는다. 이유와 전체 규율: [docs/solutions/architecture-patterns/go-pdk-external-plugin-runtime-constraints.md](./solutions/architecture-patterns/go-pdk-external-plugin-runtime-constraints.md)
-- `cacheable_body_max_size` 기본값 0은 무제한이다. 본문을 캐시하는 라우트(POST 등)는 반드시 상한을 정한다.
-- 관찰성: OTel(OpenTelemetry) 메트릭(`sonicboom_cache_requests`·`sonicboom_cache_lookup_duration`·`sonicboom_fill_lock_degraded`)과 `sonic-boom.Access`/`sonic-boom.Response` 트레이스. `OTEL_SDK_DISABLED=true`로 전체 비활성. 목록은 [설정 레퍼런스](./configuration.md).
-- `X-Cache-Key`가 내부 키를 그대로 노출하는 건 수용된 기본값이다 — 외부 노출이 우려되면 게이트웨이 앞단에서 제거한다.
+- **External plugin server discipline** — no handler panics, config treated as immutable, no TTL 0. Break any of the three and the process dies in production even with e2e green. Rationale and full rules: [docs/solutions/architecture-patterns/go-pdk-external-plugin-runtime-constraints.md](./solutions/architecture-patterns/go-pdk-external-plugin-runtime-constraints.md)
+- The default `cacheable_body_max_size` of 0 means unlimited. Routes that cache bodies (POST and the like) must set a cap.
+- Observability: OTel (OpenTelemetry) metrics (`sonicboom_cache_requests`, `sonicboom_cache_lookup_duration`, `sonicboom_fill_lock_degraded`) and `sonic-boom.Access`/`sonic-boom.Response` traces. `OTEL_SDK_DISABLED=true` turns it all off. The list is in the [configuration reference](./configuration.md).
+- `X-Cache-Key` exposing the internal key as-is is an accepted default. If external exposure concerns you, strip the header in front of the gateway.

@@ -1,98 +1,98 @@
 # Sonic Boom [![CI](https://github.com/unchartedsky/sonic-boom/workflows/CI/badge.svg)](https://github.com/unchartedsky/sonic-boom/actions/workflows/ci.yml)
 
-Kong Gateway 3.9.x OSS용 응답 캐시 플러그인. in-memory·redis·redis-cluster 세 캐시 전략을 지원하고 두 구현이 같은 코어 계약을 공유한다.
+A response cache plugin for Kong Gateway 3.9.x OSS. It supports three cache strategies (in-memory, redis, redis-cluster), and the two implementations share the same core contract.
 
-| 변종 | 구현 | 위치 | 사용 가이드 | 판정 자료 |
-|------|------|------|-------------|-----------|
-| Kong-Go | go-pdk external plugin 서버 | `main.go` + `internal/` | [docs/usage-kong-go.md](./docs/usage-kong-go.md) | — |
-| Kong-Lua | 게이트웨이 중립 코어 + Kong 어댑터 | `lua/sonic_boom/` + `lua/kong/` | [docs/usage-kong-lua.md](./docs/usage-kong-lua.md) | [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md) |
-| APISIX-Lua | 같은 코어 + APISIX 어댑터 | `lua/sonic_boom/` + `lua/apisix/` | [docs/usage-apisix.md](./docs/usage-apisix.md) | [docs/apisix-verdict.md](./docs/apisix-verdict.md) |
+| Variant | Implementation | Location | Usage guide | Verdict |
+|---------|----------------|----------|-------------|---------|
+| Kong-Go | go-pdk external plugin server | `main.go` + `internal/` | [docs/usage-kong-go.md](./docs/usage-kong-go.md) | — |
+| Kong-Lua | Gateway-neutral core + Kong adapter | `lua/sonic_boom/` + `lua/kong/` | [docs/usage-kong-lua.md](./docs/usage-kong-lua.md) | [docs/kong-lua-verdict.md](./docs/kong-lua-verdict.md) |
+| APISIX-Lua | Same core + APISIX adapter | `lua/sonic_boom/` + `lua/apisix/` | [docs/usage-apisix.md](./docs/usage-apisix.md) | [docs/apisix-verdict.md](./docs/apisix-verdict.md) |
 
-필터·저장 게이트·fill-lock 같은 제품 판정은 전부 코어(`lua/sonic_boom/flow.lua`, Go는 `internal/`)에 있고 어댑터는 PDK(Plugin Development Kit) 게터·세터와 단락 방식만 담당한다(그림 1). 무슨 뜻인지, 요청이 어디서 판정되는지는 [동작 방식](./docs/how-it-works.md)이 설명한다.
+Product decisions such as filters, storage gates, and fill-lock all live in the core (`lua/sonic_boom/flow.lua`, `internal/` in Go); adapters only handle PDK (Plugin Development Kit) getters and setters and how requests short-circuit (Figure 1). [How it works](./docs/how-it-works.md) explains what this means and where a request gets decided.
 
 ```mermaid
 flowchart LR
-    subgraph adapters[어댑터 — 게이트웨이 접속만]
-        konglua[Kong 어댑터<br/>lua/kong/]
-        apisix[APISIX 어댑터<br/>lua/apisix/]
+    subgraph adapters[Adapters — gateway connection only]
+        konglua[Kong adapter<br/>lua/kong/]
+        apisix[APISIX adapter<br/>lua/apisix/]
     end
-    subgraph core[코어 — 판정 규칙]
-        flow[요청 상태기계<br/>lua/sonic_boom/flow.lua]
+    subgraph core[Core — decision rules]
+        flow[Request state machine<br/>lua/sonic_boom/flow.lua]
     end
     konglua --> flow
     apisix --> flow
-    gogo[Kong-Go<br/>internal/] -. 같은 계약의 독립 구현 .-> flow
+    gogo[Kong-Go<br/>internal/] -. independent implementation of the same contract .-> flow
 ```
 
-*그림 1. 판정 규칙은 코어 하나에 있고 어댑터는 게이트웨이 접속만 담는다 — 그래서 세 변종의 동작이 같다.*
+*Figure 1. Decision rules live in one core and adapters only carry gateway connection, so all three variants behave the same.*
 
-## 문서 지도
+## Documentation map
 
-- **설치·사용** — [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md)
-- **동작·설정** — [동작 방식](./docs/how-it-works.md) · [설정 레퍼런스](./docs/configuration.md)
-- **문제 해결** — [troubleshooting](./docs/troubleshooting.md)
-- **검증·기록** — [testing.md](./docs/testing.md)(테스트 SSOT) · [verification-2026-10-24.md](./docs/verification-2026-10-24.md) · [bench-kong-lua-vs-go](./docs/bench-kong-lua-vs-go.md) · [bench-apisix-vs-kong-lua](./docs/bench-apisix-vs-kong-lua.md) · [bench-five-caches](./docs/bench-five-caches.md)
-- **판정 자료** — [kong-lua-verdict](./docs/kong-lua-verdict.md) · [apisix-verdict](./docs/apisix-verdict.md) · [bakeoff: API GW 캐싱 갭 분석](./docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md)
-- **학습** — [docs/solutions/](./docs/solutions/)
+- **Install and use** — [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md)
+- **Behavior and configuration** — [How it works](./docs/how-it-works.md) · [Configuration reference](./docs/configuration.md)
+- **Troubleshooting** — [troubleshooting](./docs/troubleshooting.md)
+- **Verification and records** — [testing.md](./docs/testing.md) (test SSOT) · [verification-2026-10-24.md](./docs/verification-2026-10-24.md) · [bench-kong-lua-vs-go](./docs/bench-kong-lua-vs-go.md) · [bench-apisix-vs-kong-lua](./docs/bench-apisix-vs-kong-lua.md) · [bench-five-caches](./docs/bench-five-caches.md)
+- **Verdicts** — [kong-lua-verdict](./docs/kong-lua-verdict.md) · [apisix-verdict](./docs/apisix-verdict.md) · [bakeoff: API gateway caching gap analysis](./docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md)
+- **Learnings** — [docs/solutions/](./docs/solutions/)
 
-## 빠른 시작
+## Quick start
 
 ```bash
-make test        # 통합 테스트 — compose로 redis·redis-cluster 기동 후 go test -race
-make e2e         # Go판 e2e — 세 캐시 전략 스모크
-make e2e-lua     # Kong-Lua e2e (포트 8010)
-make e2e-apisix  # APISIX e2e (포트 8020)
-make stress      # 스탬피드·CSC 실측 시나리오 + 자동 단언
+make test        # integration tests: starts redis and redis-cluster via compose, then go test -race
+make e2e         # Go e2e: smoke tests for all three cache strategies
+make e2e-lua     # Kong-Lua e2e (port 8010)
+make e2e-apisix  # APISIX e2e (port 8020)
+make stress      # cache stampede and CSC measured scenarios + automatic assertions
 ```
 
-e2e는 외부 인터넷 없이 도는다(목업 업스트림 `test/upstream/`). 게이트웨이 두 개에 같은 요청을 재생해 상태·status·본문 일치를 증명하는 건 `PARITY_PAIR=go-lua|lua-apisix ./scripts/parity_replay.sh`. 테스트 3층 구조와 CI 잡 경계 규약은 [docs/testing.md](./docs/testing.md).
+The e2e tests run without external internet access (mock upstream in `test/upstream/`). `PARITY_PAIR=go-lua|lua-apisix ./scripts/parity_replay.sh` replays the same requests against two gateways and proves that cache status, HTTP status, and body match. The three-layer test structure and the CI job boundary convention are in [docs/testing.md](./docs/testing.md).
 
-`./run.sh`(air 핫리로드 개발 서버)과 `./test.sh`(curl 스모크 1회)는 이전 세대 도구다.
+`./run.sh` (air hot-reload dev server) and `./test.sh` (a single curl smoke run) are legacy tools.
 
-## 빌드 및 설치
+## Build and install
 
 ```bash
-make build   # bin/linux-${GOARCH}/sonic-boom 크로스컴파일
+make build   # cross-compile to bin/linux-${GOARCH}/sonic-boom
 ```
 
-설치·선언형 설정·동작 확인은 각 변종의 사용 가이드를 따른다: [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md).
+Installation, declarative configuration, and verification follow the usage guide of each variant: [Kong-Go](./docs/usage-kong-go.md) · [Kong-Lua](./docs/usage-kong-lua.md) · [APISIX](./docs/usage-apisix.md).
 
-## 캐시 전략
+## Cache strategies
 
-| 전략 | 언제 |
-|------|------|
-| `in-memory` | 단일 인스턴스 — 노드 로컬 ristretto 캐시 |
-| `redis` | 여러 게이트웨이 인스턴스가 캐시를 공유 |
-| `redis-cluster` | 대규모 분산 — 자동 샤딩 |
+| Strategy | When |
+|----------|------|
+| `in-memory` | Single instance: node-local ristretto cache |
+| `redis` | Multiple gateway instances share the cache |
+| `redis-cluster` | Large-scale distribution: automatic sharding |
 
-설정 하나는 정확히 하나의 전략을 쓴다. 전략별 필드·기본값은 [설정 레퍼런스](./docs/configuration.md).
+Each configuration uses exactly one strategy. Per-strategy fields and defaults are in the [configuration reference](./docs/configuration.md).
 
-## 핵심 동작 규칙
+## Core behavior rules
 
-안전에 직결되는 것들. 각 규칙의 판정 위치는 [동작 방식](./docs/how-it-works.md), 전체 규칙은 [설정 레퍼런스](./docs/configuration.md).
+These directly affect safety. Where each rule is decided is covered in [How it works](./docs/how-it-works.md); the full rule set is in the [configuration reference](./docs/configuration.md).
 
-- 요청측 `cache_control` 가드는 기본 on — `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청은 캐시에서 제외된다(RFC 9111·Kong 원본 정합). 끄려면 라우트에 `cache_control: false`.
-- `Set-Cookie`가 있거나 `Cache-Control`에 `private`·`no-store`·`no-cache`가 있는 응답은 저장하지 않는다.
-- `cache_ttl: 0`은 거부된다 — redis 저장소에서 영구 키가 되기 때문이다.
-- `cacheable_body_max_size` 기본 0은 무제한이다. 본문을 캐시하는 라우트는 반드시 상한을 정한다.
-- `X-Cache-Key` 헤더가 내부 캐시 키를 그대로 노출한다 — 디버깅 편의로 수용된 동작이며 외부 노출이 우려되면 게이트웨이 앞단에서 제거한다.
-- 설정 검증은 요청마다 실행되고 실패해도 프로세스를 죽이지 않고 `X-Cache-Status: Bypass`로 통과한다.
+- The request-side `cache_control` guard is on by default. Requests carrying `Cache-Control: no-store/no-cache` or an `Authorization` header are excluded from the cache (matching RFC 9111 and the original Kong plugin). To turn it off, set `cache_control: false` on the route.
+- Responses with `Set-Cookie`, or whose `Cache-Control` contains `private`, `no-store`, or `no-cache`, are not stored.
+- `cache_ttl: 0` is rejected: with the redis stores it would become a permanent key.
+- The default `cacheable_body_max_size` of 0 means unlimited. Routes that cache bodies must set an upper bound.
+- The `X-Cache-Key` header exposes the internal cache key as is. This is accepted for debugging convenience; deployments concerned about external exposure remove the header in front of the gateway.
+- Configuration validation runs on every request; on failure the request passes through with `X-Cache-Status: Bypass` instead of killing the process.
 
-## 설정
+## Configuration
 
-설정은 라우트마다 붙이고 최소 형태는 전략과 저장소 주소가 전부다 — 나머지는 기본값이 덮는다. 최소 예제는 각 [사용 가이드](./docs/usage-kong-go.md)에, 전 필드·기본값·변종 차이는 [설정 레퍼런스](./docs/configuration.md)에 있다. e2e를 도는 완전한 선언형 예제는 `config_v1.yml`(Kong-Go)·`config_lua.yml`(Kong-Lua)·`config_apisix.yaml`(APISIX).
+Configuration attaches to each route, and the minimal form is just the strategy and the store address; defaults cover the rest. Minimal examples are in each [usage guide](./docs/usage-kong-go.md), and every field, default, and variant difference is in the [configuration reference](./docs/configuration.md). Complete declarative examples that run under e2e are `config_v1.yml` (Kong-Go), `config_lua.yml` (Kong-Lua), and `config_apisix.yaml` (APISIX).
 
-## 개발
+## Development
 
 - Go 1.27+, Docker & Docker Compose
-- 단위 테스트만 빠르게: `go test ./internal -run 'Test_InMemory|TestConfig|Test_'`
-- 린트: `golangci-lint run ./...`(pre-commit 훅 등록)
+- Unit tests only, fast: `go test ./internal -run 'Test_InMemory|TestConfig|Test_'`
+- Lint: `golangci-lint run ./...` (registered as a pre-commit hook)
 
 ## TODO
 
-- [ ] Kubernetes 예제 추가
-- [ ] Kong proxycache의 [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) 지원
+- [ ] Add a Kubernetes example
+- [ ] Support [`ignore_uri_case`](https://github.com/Kong/kong/blob/a4c0b461345d431067a2bfb7645434212eed7e5b/kong/plugins/proxy-cache/handler.lua#L247) from Kong proxycache
 
-## 참고
+## References
 
 - [Feature request plugin instance lifecycle hooks · Issue 78 · Kong go-pdk](https://github.com/Kong/go-pdk/issues/78)

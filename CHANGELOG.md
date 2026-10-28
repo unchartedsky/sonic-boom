@@ -4,32 +4,32 @@
 
 ### Added
 
-- **변종별 사용·설정 문서 세트** — 문서 6종 신설: [동작 방식](docs/how-it-works.md)·[설정 레퍼런스](docs/configuration.md)(전 필드·기본값·변종 차이)·변종별 사용 가이드 3종([Kong-Go](docs/usage-kong-go.md)·[Kong-Lua](docs/usage-kong-lua.md)·[APISIX](docs/usage-apisix.md))·[문제 해결 가이드](docs/troubleshooting.md). README는 문서 지도로 재구성했고(캐시 전략·동작 규칙·설정 예시는 하위 문서로 이관), 설정 예제는 e2e를 도는 선언형 설정에서 발췌했다. mermaid 다이어그램 4종 추가(요청 수명주기·저장 게이트·코어/어댑터 구조·상태 판정 근거). CONCEPTS.md에 fill-lock·저장 게이트·cache_control 가드 용어 신설. 계획: `docs/plans/2026-10-28-1400-docs-variant-usage-guides-plan.md`.
-- **개인화 응답 미저장 게이트** — `Set-Cookie` 응답과 `Cache-Control: private/no-store/no-cache` 응답을 저장하지 않는다(G9). 해당 응답은 `X-Cache-Status: Bypass`로 통과한다(APISIX proxy-cache 기본값 정합, Lua 포팅과의 명시 차이 해소). Lua판에 없던 `no-cache` 검사도 추가됐다.
+- **Variant-specific usage and configuration documentation set** — Six new documents: [How it works](docs/how-it-works.md), [Configuration reference](docs/configuration.md) (all fields, defaults, per-variant differences), three per-variant usage guides ([Kong-Go](docs/usage-kong-go.md), [Kong-Lua](docs/usage-kong-lua.md), [APISIX](docs/usage-apisix.md)), and a [Troubleshooting guide](docs/troubleshooting.md). The README was restructured as a documentation map (cache strategy, behavior rules, and config examples moved to sub-documents), and the config examples are excerpted from the declarative config that runs in e2e. Added four mermaid diagrams (request lifecycle, storage gates, core/adapter structure, status determination evidence). Added new terms to CONCEPTS.md: fill-lock, storage gates, and the cache_control guard. Plan: `docs/plans/2026-10-28-1400-docs-variant-usage-guides-plan.md`.
+- **Personalized-response no-store gate** — `Set-Cookie` responses and `Cache-Control: private/no-store/no-cache` responses are not stored (G9). Those responses pass through as `X-Cache-Status: Bypass` (consistent with the APISIX proxy-cache default; resolves a documented difference with the Lua port). Also adds a `no-cache` check that the Lua variant lacked.
 
 ### Changed
 
-- **consumer 미확정 자격증명 요청의 주체 반영(자격증명 vary)** — consumer가 식별되지 않은 요청이 `Authorization`을 갖고 있으면 익명 공용 슬롯에 캐시하지 않고 Authorization 값을 키 성분(principal)에 반영해 자격증명별 슬롯으로 분리한다. `vary_headers`에 Authorization이 선언돼 있으면 기존 vary 성분으로 충분해 중복 추가하지 않는다. `credential_vary: false`로 끄면 구 동작(익명 공용 슬롯)으로 돌아간다(옵트아웃 계약 — 미선언은 on으로 본다). Lua 키 포맷 마커가 sbk2→sbk3으로 바뀐다(구 키는 TTL 만료까지 잔존), Go 키는 직렬화 변경으로 자연 갱신된다. 배경: APISIX priority-99 간극이 권장 커스텀 대역 (0,100)을 따르는 인증에서 발생이 확정된 구성 버그로 판정됐다(2026-10-27) — 판정 기록은 `docs/apisix-verdict.md`.
-- **요청층 `cache_control` 가드 기본 on** — 이전 동작(가드 끔, Authorization 요청도 캐시)에서 바뀐다. `Cache-Control: no-store/no-cache` 요청과 `Authorization` 요청이 기본으로 캐시에서 제외된다(RFC 9111·Kong 원본 정합, G8 기본 무방비 해소). 이전 동작이 필요한 라우트는 `cache_control: false`를 명시한다. Lua판(Kong·APISIX)에도 포팅돼 있다(2026-10-26, 기본 true).
-- **캐시 키 직렬화 v2** — 해시를 xxhash64(비암호, 2^32 충돌)에서 sha256(64-hex)으로 바꾸고, 쿼리 다중 값을 NUL join 대신 값 단위 길이 접두로 직렬화해 `?x=a%00b`(단일 값)와 `?x=a&x=b`(다중 값)의 키 충돌을 제거한다. 구 형식 키는 새 키와 절대 겹치지 않아 재조회되지 않으므로, TTL 만료까지 잔존 후 자연 소멸한다(버전 마커 불필요).
-- **`cache_control` 요청 가드 동작 확정** — 기존에는 첫 요청만 저장하고 이후 Bypass했으나, 이제 Kong 원본 의도의 요청 가드로 동작한다(기본값은 아래 항목 참고). 요청 `Cache-Control: no-store/no-cache`와 `Authorization` 헤더는 캐시에서 제외되고, 나머지 요청은 정상 캐시된다(G8 완화). **운영 주의**: 이 플래그를 켠 기존 배포는 응답이 실제로 캐시·재생되기 시작한다.
+- **Principal reflection for requests with an unidentified consumer (credential vary)** — When a request without an identified consumer carries `Authorization`, it is no longer cached in the anonymous shared slot; the Authorization value is reflected into the key component (principal), splitting it into per-credential slots. If Authorization is already declared in `vary_headers`, the existing vary component is sufficient and it is not added again. Setting `credential_vary: false` reverts to the old behavior (anonymous shared slot) (opt-out contract: undeclared is treated as on). The Lua key format marker changes sbk2→sbk3 (old keys remain until TTL expiry); Go keys renew naturally through the serialization change. Background: the APISIX priority-99 gap was judged a configuration bug that occurs with authentication following the recommended custom band (0,100) (2026-10-27) — the verdict record is in `docs/apisix-verdict.md`.
+- **Request-level `cache_control` guard on by default** — Changes the previous behavior (guard off, Authorization requests also cached). `Cache-Control: no-store/no-cache` requests and `Authorization` requests are excluded from the cache by default (consistent with RFC 9111 and the original Kong plugin; resolves G8 having no default protection). Routes that need the previous behavior set `cache_control: false` explicitly. Also ported to the Lua variants (Kong, APISIX) (2026-10-26, default true).
+- **Cache key serialization v2** — Replaces the hash xxhash64 (non-cryptographic, 2^32 collisions) with sha256 (64-hex), and serializes multi-valued query parameters with a per-value length prefix instead of a NUL join, removing the key collision between `?x=a%00b` (single value) and `?x=a&x=b` (multi value). Old-format keys never collide with the new keys, so they are never fetched again; they remain until TTL expiry and disappear on their own (no version marker needed).
+- **`cache_control` request guard behavior finalized** — Previously only the first request was stored and later ones Bypassed; now it behaves as the request guard intended by the original Kong (see the entry below for the default). Requests with `Cache-Control: no-store/no-cache` and requests with the `Authorization` header are excluded from the cache, and all other requests are cached normally (G8 mitigation). **Operator caution**: Existing deployments that enabled this flag start actually caching and replaying responses.
 
 ### Fixed
 
-검증된 결함 9종 수정(전체 근거: `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md`, 계획: `docs/plans/2026-10-18-2126-fix-verified-cache-bugs-plan.md`).
+9 verified defects fixed (full evidence: `docs/bakeoffs/2026-10-18-api-gw-caching-gap-analysis.md`, plan: `docs/plans/2026-10-18-2126-fix-verified-cache-bugs-plan.md`).
 
-- **OTel 활성 시 Response 저장 경로가 항상 조기 중단되던 결함 수정** — `span_context`를 `kong.ctx.shared`로 그대로 저장하면 JSON 마샬 왕복 뒤 타입 단언이 항상 실패해, `OTEL_SDK_DISABLED != "true"`(실배포 기본값)에서 아무것도 저장되지 않고 fill-lock 승자의 락이 TTL까지 방치됐다. 직렬화 가능한 DTO로 전달하도록 바꾸고, 복원 실패 시 저장을 중단하지 않고 부모 없이 계속한다.
-- **필터 `cache_ttl`이 실제 만료에 적용** — 저장·stale 판정이 전역 값을 쓰던 것을 필터별 TTL로. 미설정(0) 필터 TTL은 전역 `cache_ttl`을 상속(명시적 0도 상속을 의미).
-- **만료·세대 불일치 캐시의 낡은 값 서빙 차단** — 버전 불일치 purge·stale 판정 뒤 upstream으로 통과(원본 Kong Lua 시맨틱 복원)하고, 재저장 경로를 개통.
-- **`cache_ttl` 기본값 0→300, 명시적 0 거절** — TTL 0은 Redis에 만료 없는 키를 남기고 절대 히트하지 못했다.
-- **설정 오류·패닉이 프로세스를 종료하지 않음** — `cache_control: true` 히트 경로의 Fatal(os.Exit) 제거, 설정 검증 상시화(실패 시 Error+Bypass), Response 페이즈 recover 추가.
-- **`content_type` 목록이 게이팅을 지배** — 미일치 content type은 캐시하지 않는다(기존: 폴스루로 전부 캐시).
-- 죽은 코드·죽은 검사 제거(reqBody 파이프라인, responseData 블록, `validate.Struct(conf)` 오대상, no-op 필터 TTL 루프).
+- **Fixed a defect where the Response storage path always aborted early with OTel enabled** — Storing `span_context` as-is in `kong.ctx.shared` made the type assertion always fail after a JSON marshal round-trip, so with `OTEL_SDK_DISABLED != "true"` (the deployment default) nothing was ever stored and the fill-lock winner's lock was left abandoned until TTL. Now passed through a serializable DTO instead; on restore failure, storage continues without a parent rather than aborting.
+- **Filter `cache_ttl` now applies to actual expiry** — Storage and stale determination used to use the global value; now they use the per-filter TTL. An unset (0) filter TTL inherits the global `cache_ttl` (an explicit 0 also means inherit).
+- **Blocked serving stale values from expired or generation-mismatched cache** — After a version-mismatch purge or a stale determination, pass through to upstream (restoring original Kong Lua semantics) and open the re-store path.
+- **`cache_ttl` default 0→300, explicit 0 rejected** — TTL 0 left keys in Redis without expiry, and such keys could never be hit.
+- **Config errors and panics no longer terminate the process** — Removed the Fatal(os.Exit) on the `cache_control: true` hit path, made config validation always-on (Error + Bypass on failure), and added a recover in the Response phase.
+- **The `content_type` list governs gating** — Content types that do not match are not cached (previously: everything fell through and was cached).
+- Dead code and dead check removal (reqBody pipeline, responseData block, `validate.Struct(conf)` wrong target, no-op filter TTL loop).
 
-### 운영자 주의사항 (릴리스 노트)
+### Operator notes (release notes)
 
-- (a) **전면 콜드 캐시**: TTL이 캐시 키 해시에 포함되어, 실효 TTL이 바뀌는 라우트의 키 공간이 전부 갱신된다.
-- (b) **기존 TTL 0 영구 키 잔존**: 이전 배포가 만든 만료 없는 키는 참조되지 않은 채 Redis에 남는다. 정리는 `SCAN` 후 `PTTL == -1`인 키를 판별해 `DEL`(또는 db 교체 시 `FLUSHDB`).
-- (c) **`cache_ttl` 기본값 변화**: 미설정 배포의 동작이 300초 만료로 바뀐다.
-- (d) **content_type 정확 매치**: 목록 밖 content type(파라미터 변형 포함, 예: `application/json;charset=utf-8` 공백 없음)은 이제 Bypass된다. 필요한 변형을 목록에 추가하라.
-- (e) **만료·세대 불일치 히트의 upstream 전환**: 이전에는 낡은 값을 `Hit` 라벨로 서빙했다면, 이제 upstream 재검증(Refresh/Bypass) 후 재저장된다. TTL 경계의 히트율 하락·upstream 부하 증가는 의도된 정합화다.
+- (a) **Full cold cache**: The TTL is part of the cache key hash, so the entire key space of routes whose effective TTL changes is renewed.
+- (b) **Existing TTL-0 permanent keys remain**: Expiry-less keys created by previous deployments stay in Redis unreferenced. To clean up, run `SCAN`, identify keys with `PTTL == -1`, and `DEL` them (or `FLUSHDB` when replacing the db).
+- (c) **`cache_ttl` default change**: Deployments that never set it now expire entries after 300 seconds.
+- (d) **content_type exact match**: Content types outside the list (including parameter variants, e.g. `application/json;charset=utf-8` without a space) are now Bypassed. Add the variants you need to the list.
+- (e) **Upstream switch for expired or generation-mismatched hits**: Where stale values were previously served labeled `Hit`, they are now revalidated against upstream (Refresh/Bypass) and re-stored. The hit-rate drop at TTL boundaries and the increased upstream load are intended realignment.
