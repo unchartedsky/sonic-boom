@@ -7,7 +7,7 @@ require (
 	github.com/creasty/defaults v1.11.0
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/eko/gocache/lib/v4 v4.4.0
-	github.com/eko/gocache/store/redis/v4 v4.2.12
+	github.com/eko/gocache/store/redis/v4 v4.2.13
 	github.com/eko/gocache/store/rediscluster/v4 v4.2.9
 	github.com/eko/gocache/store/ristretto/v4 v4.3.8
 	github.com/go-playground/validator/v10 v10.30.5
